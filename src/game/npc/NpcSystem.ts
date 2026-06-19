@@ -41,14 +41,14 @@ export class NpcSystem {
     npc.hitTimer = 0.12;
     npc.velocity.addInPlace(direction.scale(knockback));
     if (npc.health <= 0) {
-      npc.mesh.dispose();
+      this.disposeNpc(npc);
       const index = this.npcs.indexOf(npc);
       if (index >= 0) this.npcs.splice(index, 1);
     }
   }
 
   dispose(): void {
-    this.npcs.forEach((npc) => npc.mesh.dispose());
+    this.npcs.forEach((npc) => this.disposeNpc(npc));
     this.npcs.length = 0;
   }
 
@@ -57,5 +57,12 @@ export class NpcSystem {
     mesh.position = position.clone();
     mesh.material = this.materials.npc.clone(`${name}-mat`);
     this.npcs.push({ mesh, radius: 0.42, velocity: Vector3.Zero(), health: 3, hitTimer: 0 });
+  }
+
+  private disposeNpc(npc: Npc): void {
+    const material = npc.mesh.material;
+    npc.mesh.material = null;
+    material?.dispose();
+    npc.mesh.dispose();
   }
 }
