@@ -9,6 +9,7 @@ export type Projectile = {
   readonly mesh: Mesh;
   readonly radius: number;
   readonly direction: Vector3;
+  age: number;
   life: number;
 };
 
@@ -25,6 +26,7 @@ export class ProjectileSystem {
       mesh,
       radius: 0.18,
       direction: normalizeHorizontal(direction),
+      age: 0,
       life: 1.4,
     });
   }
@@ -32,6 +34,7 @@ export class ProjectileSystem {
   update(deltaSeconds: number): void {
     const speed = 7.5;
     for (const projectile of [...this.projectiles]) {
+      projectile.age += deltaSeconds;
       projectile.mesh.position.addInPlace(projectile.direction.scale(speed * deltaSeconds));
       projectile.life -= deltaSeconds;
       if (projectile.life <= 0) this.remove(projectile);

@@ -12,6 +12,8 @@ import type { DioramaMap } from "./types";
 import { NpcSystem } from "./npc/NpcSystem";
 import { ProjectileSystem } from "./combat/ProjectileSystem";
 import { CollisionSystem } from "./combat/CollisionSystem";
+import { Hud } from "./ui/Hud";
+import { DebugTools } from "./debug/DebugTools";
 
 export class GameScene {
   readonly scene: Scene;
@@ -23,6 +25,8 @@ export class GameScene {
   private npcs!: NpcSystem;
   private projectiles!: ProjectileSystem;
   private collisions!: CollisionSystem;
+  private hud!: Hud;
+  private debugTools!: DebugTools;
 
   constructor(
     private readonly engine: Engine,
@@ -42,6 +46,10 @@ export class GameScene {
     this.npcs = new NpcSystem(this.scene, this.materials);
     this.projectiles = new ProjectileSystem(this.scene, this.materials);
     this.collisions = new CollisionSystem();
+    const hudRoot = document.querySelector<HTMLDivElement>("#hud-root");
+    if (!hudRoot) throw new Error("Missing #hud-root element.");
+    this.hud = new Hud(hudRoot);
+    this.debugTools = new DebugTools(this.scene);
     this.cameraRig.setTarget(this.player.position);
     this.canvas.focus();
   }
@@ -54,11 +62,18 @@ export class GameScene {
     this.projectiles.update(deltaSeconds);
     this.npcs.update(deltaSeconds);
     this.collisions.resolveProjectileHits(this.projectiles, this.npcs);
+    this.hud.update({
+      playerHealth: this.player.health,
+      npcCount: this.npcs.npcs.length,
+      projectileCount: this.projectiles.projectiles.length,
+    });
     this.cameraRig.setTarget(this.player.position);
     this.cameraRig.update();
   }
 
   dispose(): void {
+    this.debugTools?.dispose();
+    this.hud?.dispose();
     this.input?.dispose();
     this.projectiles?.dispose();
     this.npcs?.dispose();
