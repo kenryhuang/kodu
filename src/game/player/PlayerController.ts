@@ -17,14 +17,25 @@ export class PlayerController {
   health = 5;
   private facing = new Vector3(1, 0, 0);
   private fireCooldown = 0;
+  private readonly baseCenterHeight = 0.62;
+  private readonly maxJumpHeight = 1.8;
+  private readonly jumpVelocity = 5.6;
+  private readonly gravity = 13;
+  private verticalVelocity = 0;
+  private grounded = true;
+  private currentSurfaceHeight = 0;
+  private jumpStartSurfaceHeight = 0;
+  private lastFootHeight = 0;
 
   constructor(scene: Scene, materials: CartoonMaterials, private readonly map: DioramaMap) {
     this.mesh = MeshBuilder.CreateCapsule("player", { height: 1.15, radius: 0.34, tessellation: 10 }, scene);
-    this.mesh.position.set(0, 0.62, 0);
+    this.mesh.position.set(0, this.baseCenterHeight, 0);
     this.mesh.material = materials.player;
   }
 
   update(deltaSeconds: number, input: InputManager): FireRequest | undefined {
+    this.lastFootHeight = this.footHeight;
+
     const move = normalizeHorizontal(new Vector3(input.moveX, 0, input.moveZ));
     if (move.lengthSquared() > 0) {
       this.facing.copyFrom(move);
@@ -32,6 +43,22 @@ export class PlayerController {
       this.mesh.position.x += move.x * speed * deltaSeconds;
       this.mesh.position.z += move.z * speed * deltaSeconds;
       this.clampToBounds();
+    }
+
+    if (input.consumeJump() && this.grounded) {
+      this.jumpStartSurfaceHeight = this.currentSurfaceHeight;
+      this.verticalVelocity = this.jumpVelocity;
+      this.grounded = false;
+    }
+
+    if (!this.grounded || this.verticalVelocity !== 0) {
+      this.verticalVelocity -= this.gravity * deltaSeconds;
+      this.mesh.position.y += this.verticalVelocity * deltaSeconds;
+
+      const floorCenterY = this.baseCenterHeight;
+      if (this.mesh.position.y <= floorCenterY && this.verticalVelocity <= 0) {
+        this.landOnSurface(0);
+      }
     }
 
     const aimDirection = input.getPointerAimDirection(this.mesh.position);
@@ -59,6 +86,48 @@ export class PlayerController {
 
   get position(): Vector3 {
     return this.mesh.position;
+  }
+
+  get isGrounded(): boolean {
+    return this.grounded;
+  }
+
+  get isGroundedOnFloor(): boolean {
+    return this.grounded && this.currentSurfaceHeight <= 0.0001;
+  }
+
+  get isDescending(): boolean {
+    return this.verticalVelocity <= 0;
+  }
+
+  get footHeight(): number {
+    return this.mesh.position.y - this.baseCenterHeight;
+  }
+
+  get previousFootHeight(): number {
+    return this.lastFootHeight;
+  }
+
+  get surfaceHeight(): number {
+    return this.currentSurfaceHeight;
+  }
+
+  canLandOnSurface(surfaceHeight: number): boolean {
+    return surfaceHeight <= this.jumpStartSurfaceHeight + this.maxJumpHeight + 0.0001;
+  }
+
+  landOnSurface(surfaceHeight: number): void {
+    this.currentSurfaceHeight = surfaceHeight;
+    this.mesh.position.y = surfaceHeight + this.baseCenterHeight;
+    this.verticalVelocity = 0;
+    this.grounded = true;
+  }
+
+  startFalling(): void {
+    if (!this.grounded) return;
+    this.jumpStartSurfaceHeight = this.currentSurfaceHeight;
+    this.grounded = false;
+    this.verticalVelocity = 0;
   }
 
   clampToBounds(): void {

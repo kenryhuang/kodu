@@ -8,6 +8,7 @@ export class InputManager {
   readonly pointer = new Vector2(0, 0);
   private readonly keys = new Set<string>();
   private firePressed = false;
+  private jumpPressed = false;
   private pointerKnown = false;
   private readonly groundPlane = Plane.FromPositionAndNormal(Vector3.Zero(), Vector3.Up());
 
@@ -27,9 +28,15 @@ export class InputManager {
   }
 
   consumeFire(): boolean {
-    const shouldFire = this.firePressed || this.isDown("Space");
+    const shouldFire = this.firePressed;
     this.firePressed = false;
     return shouldFire;
+  }
+
+  consumeJump(): boolean {
+    const shouldJump = this.jumpPressed;
+    this.jumpPressed = false;
+    return shouldJump;
   }
 
   getPointerAimDirection(origin: Vector3): Vector3 | undefined {
@@ -67,6 +74,10 @@ export class InputManager {
   }
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
+    if (event.code === "Space" && !this.keys.has(event.code) && !event.repeat) {
+      this.jumpPressed = true;
+      event.preventDefault();
+    }
     this.keys.add(event.code);
   };
 

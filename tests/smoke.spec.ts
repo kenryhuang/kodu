@@ -7,6 +7,15 @@ type CameraSnapshot = {
   orthoRight: number;
 };
 
+type PlayerSnapshot = {
+  x: number;
+  y: number;
+  z: number;
+  footHeight: number;
+  grounded: boolean;
+  surfaceHeight: number;
+};
+
 async function sampleCanvasScreenshot(page: Page, canvas: Locator): Promise<{
   width: number;
   height: number;
@@ -39,6 +48,48 @@ async function sampleCanvasScreenshot(page: Page, canvas: Locator): Promise<{
       pixels: points.map(([x, y]) => Array.from(context.getImageData(x, y, 1, 1).data)),
     };
   }, screenshot.toString("base64"));
+}
+
+async function readPlayerSnapshot(page: Page): Promise<PlayerSnapshot> {
+  return page.evaluate(() => {
+    const app = (globalThis as typeof globalThis & {
+      __KODU_APP__?: {
+        gameScene?: {
+          player?: {
+            position: { x: number; y: number; z: number };
+            footHeight: number;
+            isGrounded: boolean;
+            surfaceHeight: number;
+          };
+        };
+      };
+    }).__KODU_APP__;
+    const player = app?.gameScene?.player;
+    if (!player) throw new Error("Missing player controller");
+    return {
+      x: player.position.x,
+      y: player.position.y,
+      z: player.position.z,
+      footHeight: player.footHeight,
+      grounded: player.isGrounded,
+      surfaceHeight: player.surfaceHeight,
+    };
+  });
+}
+
+async function readProjectileCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const app = (globalThis as typeof globalThis & {
+      __KODU_APP__?: {
+        gameScene?: {
+          projectiles?: { projectiles: unknown[] };
+        };
+      };
+    }).__KODU_APP__;
+    const projectiles = app?.gameScene?.projectiles;
+    if (!projectiles) throw new Error("Missing projectile system");
+    return projectiles.projectiles.length;
+  });
 }
 
 async function readCameraSnapshot(page: Page): Promise<CameraSnapshot> {
@@ -87,6 +138,38 @@ test("renders the game and fires a projectile", async ({ page }) => {
   await expect(page.locator('[data-hud="projectiles"]')).not.toHaveText("0");
   await page.waitForTimeout(1800);
   await expect(page.locator('[data-hud="projectiles"]')).toHaveText("0");
+  expect(await readProjectileCount(page)).toBe(0);
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
+test("space jumps without firing a projectile", async ({ page }) => {
+  const pageErrors: string[] = [];
+  const consoleErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+
+  await page.goto("/");
+  await expect(page.locator("#game-canvas")).toBeVisible();
+
+  const before = await readPlayerSnapshot(page);
+  expect(await readProjectileCount(page)).toBe(0);
+
+  await page.keyboard.press("Space");
+  await page.waitForTimeout(180);
+
+  const after = await readPlayerSnapshot(page);
+  expect(after.y).toBeGreaterThan(before.y + 0.12);
+  expect(after.grounded).toBe(false);
+  expect(await readProjectileCount(page)).toBe(0);
+
+  await page.waitForTimeout(900);
+  const landed = await readPlayerSnapshot(page);
+  expect(landed.grounded).toBe(true);
+  expect(landed.footHeight).toBeCloseTo(0, 1);
+
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
 });
