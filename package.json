@@ -1,0 +1,24 @@
+{
+  "name": "kodu",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test:smoke": "playwright test tests/smoke.spec.ts",
+    "test": "npm run typecheck && npm run test:smoke"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^8.0.0",
+    "@babylonjs/gui": "^8.0.0",
+    "@babylonjs/inspector": "^8.0.0",
+    "@babylonjs/loaders": "^8.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.0.0"
+  }
+}
