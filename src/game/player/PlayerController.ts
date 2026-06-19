@@ -29,12 +29,9 @@ export class PlayerController {
     if (move.lengthSquared() > 0) {
       this.facing.copyFrom(move);
       const speed = 4.2;
-      const minX = this.map.bounds.minX + this.radius;
-      const maxX = this.map.bounds.maxX - this.radius;
-      const minZ = this.map.bounds.minZ + this.radius;
-      const maxZ = this.map.bounds.maxZ - this.radius;
-      this.mesh.position.x = clamp(this.mesh.position.x + move.x * speed * deltaSeconds, minX, maxX);
-      this.mesh.position.z = clamp(this.mesh.position.z + move.z * speed * deltaSeconds, minZ, maxZ);
+      this.mesh.position.x += move.x * speed * deltaSeconds;
+      this.mesh.position.z += move.z * speed * deltaSeconds;
+      this.clampToBounds();
     }
 
     const aimDirection = input.getPointerAimDirection(this.mesh.position);
@@ -62,5 +59,14 @@ export class PlayerController {
 
   get position(): Vector3 {
     return this.mesh.position;
+  }
+
+  clampToBounds(): void {
+    const minX = this.map.bounds.minX + this.radius;
+    const maxX = this.map.bounds.maxX - this.radius;
+    const minZ = this.map.bounds.minZ + this.radius;
+    const maxZ = this.map.bounds.maxZ - this.radius;
+    this.mesh.position.x = clamp(this.mesh.position.x, minX, maxX);
+    this.mesh.position.z = clamp(this.mesh.position.z, minZ, maxZ);
   }
 }

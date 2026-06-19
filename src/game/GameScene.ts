@@ -9,6 +9,9 @@ import { CameraRig } from "./camera/CameraRig";
 import { createMaterials, type CartoonMaterials } from "./world/createMaterials";
 import { createDioramaMap } from "./world/createDioramaMap";
 import type { DioramaMap } from "./types";
+import { NpcSystem } from "./npc/NpcSystem";
+import { ProjectileSystem } from "./combat/ProjectileSystem";
+import { CollisionSystem } from "./combat/CollisionSystem";
 
 export class GameScene {
   readonly scene: Scene;
@@ -17,6 +20,9 @@ export class GameScene {
   private cameraRig!: CameraRig;
   private input!: InputManager;
   private player!: PlayerController;
+  private npcs!: NpcSystem;
+  private projectiles!: ProjectileSystem;
+  private collisions!: CollisionSystem;
 
   constructor(
     private readonly engine: Engine,
@@ -33,19 +39,29 @@ export class GameScene {
     this.cameraRig = new CameraRig(this.scene);
     this.input = new InputManager(this.scene, this.canvas);
     this.player = new PlayerController(this.scene, this.materials, this.map);
+    this.npcs = new NpcSystem(this.scene, this.materials);
+    this.projectiles = new ProjectileSystem(this.scene, this.materials);
+    this.collisions = new CollisionSystem();
     this.cameraRig.setTarget(this.player.position);
     this.canvas.focus();
   }
 
   update(deltaSeconds: number): void {
     const fireRequest = this.player.update(deltaSeconds, this.input);
+    if (fireRequest) this.projectiles.spawn(fireRequest.origin, fireRequest.direction);
+    this.collisions.resolvePlayerObstacles(this.player, this.map);
+    this.player.clampToBounds();
+    this.projectiles.update(deltaSeconds);
+    this.npcs.update(deltaSeconds);
+    this.collisions.resolveProjectileHits(this.projectiles, this.npcs);
     this.cameraRig.setTarget(this.player.position);
-    void fireRequest;
     this.cameraRig.update();
   }
 
   dispose(): void {
     this.input?.dispose();
+    this.projectiles?.dispose();
+    this.npcs?.dispose();
     this.scene.dispose();
     void this.engine;
   }

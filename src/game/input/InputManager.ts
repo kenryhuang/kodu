@@ -1,5 +1,6 @@
 import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Plane } from "@babylonjs/core/Maths/math.plane";
+import "@babylonjs/core/Culling/ray";
 import type { Scene } from "@babylonjs/core/scene";
 import { horizontalLength, normalizeHorizontal } from "../utils/math";
 
