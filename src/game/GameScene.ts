@@ -72,6 +72,10 @@ export class GameScene {
     this.cameraRig.update();
   }
 
+  resize(width: number, height: number): void {
+    this.cameraRig?.resize(width, height);
+  }
+
   dispose(): void {
     this.debugTools?.dispose();
     this.hud?.dispose();

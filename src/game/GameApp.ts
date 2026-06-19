@@ -5,7 +5,10 @@ import { GameScene } from "./GameScene";
 export class GameApp {
   private readonly engine: Engine;
   private gameScene?: GameScene;
-  private readonly onResize = (): void => this.engine.resize();
+  private readonly onResize = (): void => {
+    this.engine.resize();
+    this.gameScene?.resize(this.engine.getRenderWidth(), this.engine.getRenderHeight());
+  };
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.engine = new Engine(canvas, true, {
@@ -18,6 +21,7 @@ export class GameApp {
   async start(): Promise<void> {
     this.gameScene = new GameScene(this.engine, this.canvas);
     await this.gameScene.init();
+    this.gameScene.resize(this.engine.getRenderWidth(), this.engine.getRenderHeight());
     this.engine.runRenderLoop(() => {
       this.gameScene?.update(this.engine.getDeltaTime() / 1000);
       this.gameScene?.scene.render();
