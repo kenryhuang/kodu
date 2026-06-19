@@ -1,10 +1,14 @@
+import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Plane } from "@babylonjs/core/Maths/math.plane";
 import type { Scene } from "@babylonjs/core/scene";
-import { Vector2 } from "@babylonjs/core/Maths/math.vector";
+import { normalizeHorizontal } from "../utils/math";
 
 export class InputManager {
   readonly pointer = new Vector2(0, 0);
   private readonly keys = new Set<string>();
   private firePressed = false;
+  private pointerKnown = false;
+  private readonly groundPlane = Plane.FromPositionAndNormal(Vector3.Zero(), Vector3.Up());
 
   constructor(private readonly scene: Scene, private readonly canvas: HTMLCanvasElement) {
     window.addEventListener("keydown", this.onKeyDown);
@@ -25,6 +29,26 @@ export class InputManager {
     const shouldFire = this.firePressed || this.isDown("Space");
     this.firePressed = false;
     return shouldFire;
+  }
+
+  getPointerAimDirection(origin: Vector3): Vector3 | undefined {
+    if (!this.pointerKnown) return undefined;
+
+    const camera = this.scene.activeCamera;
+    if (!camera) return undefined;
+
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return undefined;
+
+    const engine = this.scene.getEngine();
+    const x = (this.pointer.x / rect.width) * engine.getRenderWidth();
+    const y = (this.pointer.y / rect.height) * engine.getRenderHeight();
+    const ray = this.scene.createPickingRay(x, y, null, camera);
+    const hitDistance = ray.intersectsPlane(this.groundPlane);
+    if (hitDistance === null || hitDistance <= 0) return undefined;
+
+    const hitPoint = ray.origin.add(ray.direction.scale(hitDistance));
+    return normalizeHorizontal(new Vector3(hitPoint.x - origin.x, 0, hitPoint.z - origin.z));
   }
 
   isDown(code: string): boolean {
@@ -50,9 +74,11 @@ export class InputManager {
   private readonly onPointerMove = (event: PointerEvent): void => {
     const rect = this.canvas.getBoundingClientRect();
     this.pointer.set(event.clientX - rect.left, event.clientY - rect.top);
+    this.pointerKnown = true;
   };
 
-  private readonly onPointerDown = (): void => {
+  private readonly onPointerDown = (event: PointerEvent): void => {
+    this.onPointerMove(event);
     this.firePressed = true;
     this.canvas.focus();
   };

@@ -29,17 +29,32 @@ export class PlayerController {
     if (move.lengthSquared() > 0) {
       this.facing.copyFrom(move);
       const speed = 4.2;
-      this.mesh.position.x = clamp(this.mesh.position.x + move.x * speed * deltaSeconds, this.map.bounds.minX, this.map.bounds.maxX);
-      this.mesh.position.z = clamp(this.mesh.position.z + move.z * speed * deltaSeconds, this.map.bounds.minZ, this.map.bounds.maxZ);
+      const minX = this.map.bounds.minX + this.radius;
+      const maxX = this.map.bounds.maxX - this.radius;
+      const minZ = this.map.bounds.minZ + this.radius;
+      const maxZ = this.map.bounds.maxZ - this.radius;
+      this.mesh.position.x = clamp(this.mesh.position.x + move.x * speed * deltaSeconds, minX, maxX);
+      this.mesh.position.z = clamp(this.mesh.position.z + move.z * speed * deltaSeconds, minZ, maxZ);
+    }
+
+    const aimDirection = input.getPointerAimDirection(this.mesh.position);
+    if (aimDirection) {
+      this.facing.copyFrom(aimDirection);
+    }
+
+    if (move.lengthSquared() > 0 || aimDirection) {
       this.mesh.rotation.y = Math.atan2(this.facing.x, this.facing.z);
     }
 
     this.fireCooldown = Math.max(0, this.fireCooldown - deltaSeconds);
     if (input.consumeFire() && this.fireCooldown <= 0) {
       this.fireCooldown = 0.28;
+      const direction = aimDirection ?? this.facing.clone();
+      this.facing.copyFrom(direction);
+      this.mesh.rotation.y = Math.atan2(this.facing.x, this.facing.z);
       return {
         origin: this.mesh.position.add(new Vector3(this.facing.x * 0.55, 0.15, this.facing.z * 0.55)),
-        direction: this.facing.clone(),
+        direction,
       };
     }
     return undefined;
