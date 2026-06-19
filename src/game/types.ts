@@ -22,4 +22,5 @@ export type DebugStats = {
   npcCount: number;
   projectileCount: number;
   playerHealth: number;
+  playerState: string;
 };

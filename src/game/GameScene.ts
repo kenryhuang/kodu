@@ -64,6 +64,7 @@ export class GameScene {
     this.collisions.resolveProjectileHits(this.projectiles, this.npcs);
     this.hud.update({
       playerHealth: this.player.health,
+      playerState: "Ready",
       npcCount: this.npcs.npcs.length,
       projectileCount: this.projectiles.projectiles.length,
     });

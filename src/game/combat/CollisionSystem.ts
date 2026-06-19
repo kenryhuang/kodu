@@ -64,7 +64,6 @@ export class CollisionSystem {
 
   resolveProjectileHits(projectiles: ProjectileSystem, npcs: NpcSystem): void {
     for (const projectile of [...projectiles.projectiles]) {
-      if (projectile.age < 0.35) continue;
       for (const npc of [...npcs.npcs]) {
         const hitDistance = projectile.radius + npc.radius;
         if (horizontalDistanceSquared(projectile.mesh.position, npc.mesh.position) <= hitDistance * hitDistance) {

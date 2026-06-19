@@ -9,6 +9,7 @@ export class Hud {
       <section class="hud-panel">
         <h1 class="hud-title">Kodu</h1>
         <div class="hud-row"><span>Health</span><strong data-hud="health">5</strong></div>
+        <div class="hud-row"><span>State</span><strong data-hud="state">Ready</strong></div>
         <div class="hud-row"><span>NPCs</span><strong data-hud="npcs">0</strong></div>
         <div class="hud-row"><span>Projectiles</span><strong data-hud="projectiles">0</strong></div>
       </section>
@@ -18,6 +19,7 @@ export class Hud {
 
   update(stats: DebugStats): void {
     this.set("health", String(stats.playerHealth));
+    this.set("state", stats.playerState);
     this.set("npcs", String(stats.npcCount));
     this.set("projectiles", String(stats.projectileCount));
   }
