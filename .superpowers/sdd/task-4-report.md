@@ -29,3 +29,8 @@
 - Tightened movement clamping so the player center stays inset from map bounds by `this.radius`, which keeps the capsule footprint from clipping past the island edge.
 - Test command: `npm run typecheck`
 - Test result: passed
+
+## Fix for re-review finding
+- Updated `InputManager.getPointerAimDirection()` to reject zero-length and near-zero horizontal aim vectors after ground-plane projection, so `PlayerController` now falls back to the current facing direction instead of firing with a zero/useless direction.
+- Test command: `npm run typecheck`
+- Test result: passed

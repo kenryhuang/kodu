@@ -1,7 +1,7 @@
 import { Vector2, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { Plane } from "@babylonjs/core/Maths/math.plane";
 import type { Scene } from "@babylonjs/core/scene";
-import { normalizeHorizontal } from "../utils/math";
+import { horizontalLength, normalizeHorizontal } from "../utils/math";
 
 export class InputManager {
   readonly pointer = new Vector2(0, 0);
@@ -48,7 +48,9 @@ export class InputManager {
     if (hitDistance === null || hitDistance <= 0) return undefined;
 
     const hitPoint = ray.origin.add(ray.direction.scale(hitDistance));
-    return normalizeHorizontal(new Vector3(hitPoint.x - origin.x, 0, hitPoint.z - origin.z));
+    const direction = normalizeHorizontal(new Vector3(hitPoint.x - origin.x, 0, hitPoint.z - origin.z));
+    if (horizontalLength(direction) <= 0.0001) return undefined;
+    return direction;
   }
 
   isDown(code: string): boolean {
