@@ -15,6 +15,8 @@
 - WASD and arrow keys: horizontal movement.
 - Holding `Space` should not repeatedly jump while airborne.
 - A new jump can start only when the player is grounded on the floor or on an obstacle top.
+- The player can jump up by at most `1.8m` relative to the surface they jumped from.
+- Obstacle tops higher than `jumpStartSurfaceHeight + 1.8` are not valid landing surfaces.
 - No full platforming system.
 - No ledge grabbing, wall jumping, slopes, moving platforms, or double jump.
 - No new art assets.
@@ -49,6 +51,7 @@
   - `PlayerController.footHeight: number`
   - `PlayerController.previousFootHeight: number`
   - `PlayerController.surfaceHeight: number`
+  - `PlayerController.canLandOnSurface(surfaceHeight: number): boolean`
   - `PlayerController.landOnSurface(surfaceHeight: number): void`
   - `PlayerController.startFalling(): void`
 
@@ -209,11 +212,13 @@ Add these fields after `private fireCooldown = 0;`:
 
 ```ts
   private readonly baseCenterHeight = 0.62;
+  private readonly maxJumpHeight = 1.8;
   private readonly jumpVelocity = 5.6;
   private readonly gravity = 13;
   private verticalVelocity = 0;
   private grounded = true;
   private currentSurfaceHeight = 0;
+  private jumpStartSurfaceHeight = 0;
   private lastFootHeight = 0;
 ```
 
@@ -233,6 +238,7 @@ After the movement block and before pointer aim, add:
 
 ```ts
     if (input.consumeJump() && this.grounded) {
+      this.jumpStartSurfaceHeight = this.currentSurfaceHeight;
       this.verticalVelocity = this.jumpVelocity;
       this.grounded = false;
     }
@@ -275,6 +281,10 @@ Add these public getters and methods before `clampToBounds()`:
     return this.currentSurfaceHeight;
   }
 
+  canLandOnSurface(surfaceHeight: number): boolean {
+    return surfaceHeight <= this.jumpStartSurfaceHeight + this.maxJumpHeight + 0.0001;
+  }
+
   landOnSurface(surfaceHeight: number): void {
     this.currentSurfaceHeight = surfaceHeight;
     this.mesh.position.y = surfaceHeight + this.baseCenterHeight;
@@ -284,6 +294,7 @@ Add these public getters and methods before `clampToBounds()`:
 
   startFalling(): void {
     if (!this.grounded) return;
+    this.jumpStartSurfaceHeight = this.currentSurfaceHeight;
     this.grounded = false;
     this.verticalVelocity = 0;
   }
@@ -342,6 +353,7 @@ git commit -m "feat: add player jump input"
   - `PlayerController.footHeight: number`
   - `PlayerController.previousFootHeight: number`
   - `PlayerController.surfaceHeight: number`
+  - `PlayerController.canLandOnSurface(surfaceHeight: number): boolean`
   - `PlayerController.landOnSurface(surfaceHeight: number): void`
   - `PlayerController.startFalling(): void`
 - Produces:
@@ -376,6 +388,64 @@ async function placePlayer(page: Page, x: number, z: number): Promise<void> {
 }
 ```
 
+Add this helper after `placePlayer()`:
+
+```ts
+async function dropPlayerFromHeight(page: Page, x: number, centerY: number, z: number): Promise<void> {
+  await page.evaluate(({ x: nextX, centerY: nextY, z: nextZ }) => {
+    const app = (globalThis as typeof globalThis & {
+      __KODU_APP__?: {
+        gameScene?: {
+          player?: {
+            position: { x: number; y: number; z: number };
+            landOnSurface(surfaceHeight: number): void;
+            startFalling(): void;
+            clampToBounds(): void;
+          };
+        };
+      };
+    }).__KODU_APP__;
+    const player = app?.gameScene?.player;
+    if (!player) throw new Error("Missing player controller");
+    player.landOnSurface(0);
+    player.position.x = nextX;
+    player.position.y = nextY;
+    player.position.z = nextZ;
+    player.startFalling();
+    player.clampToBounds();
+  }, { x, centerY, z });
+}
+
+async function addTestObstacle(
+  page: Page,
+  obstacle: {
+    name: string;
+    center: { x: number; y: number; z: number };
+    halfExtents: { x: number; y: number; z: number };
+  },
+): Promise<void> {
+  await page.evaluate((nextObstacle) => {
+    const app = (globalThis as typeof globalThis & {
+      __KODU_APP__?: {
+        gameScene?: {
+          map?: {
+            obstacles: Array<{
+              name: string;
+              center: { x: number; y: number; z: number };
+              halfExtents: { x: number; y: number; z: number };
+              mesh?: unknown;
+            }>;
+          };
+        };
+      };
+    }).__KODU_APP__;
+    const map = app?.gameScene?.map;
+    if (!map) throw new Error("Missing diorama map");
+    map.obstacles.push({ ...nextObstacle, mesh: undefined });
+  }, obstacle);
+}
+```
+
 Add this new test after `space jumps without firing a projectile`:
 
 ```ts
@@ -404,15 +474,38 @@ test("player can jump onto a rock obstacle", async ({ page }) => {
 });
 ```
 
+Add this new test after `player can jump onto a rock obstacle`:
+
+```ts
+test("player cannot land on an obstacle above jump reach", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#game-canvas")).toBeVisible();
+
+  const unreachableTop = 2.0;
+  await addTestObstacle(page, {
+    name: "test-high-obstacle",
+    center: { x: -3.1, y: 1.0, z: 2.8 },
+    halfExtents: { x: 0.85, y: 1.0, z: 0.65 },
+  });
+  await dropPlayerFromHeight(page, -3.1, 3.1, 2.8);
+  await page.waitForTimeout(1200);
+
+  const after = await readPlayerSnapshot(page);
+  expect(after.grounded).toBe(true);
+  expect(after.surfaceHeight).not.toBeCloseTo(unreachableTop, 1);
+  expect(after.footHeight).toBeCloseTo(0, 1);
+});
+```
+
 - [ ] **Step 2: Run the focused test to verify RED**
 
 Run:
 
 ```bash
-npm run test:smoke -- --grep "player can jump onto a rock obstacle"
+npm run test:smoke -- --grep "player can jump onto a rock obstacle|player cannot land on an obstacle above jump reach"
 ```
 
-Expected: FAIL. With Task 1 only, the player either lands back on the floor or is blocked by existing side collision instead of settling on the obstacle top.
+Expected: FAIL. With Task 1 only, the player either lands back on the floor or is blocked by existing side collision instead of settling on the obstacle top. If top landing is implemented without the `1.8m` reach check, the high-obstacle test fails because the debug-dropped player lands on the unreachable `2.0m` top instead of falling through to the floor.
 
 - [ ] **Step 3: Add obstacle top support helpers**
 
@@ -436,6 +529,7 @@ function getHighestObstacleSupport(player: PlayerController, map: DioramaMap): n
   for (const obstacle of map.obstacles) {
     if (!overlapsObstacleTop(player.position, player.radius, obstacle)) continue;
     const obstacleTop = obstacle.center.y + obstacle.halfExtents.y;
+    if (!player.canLandOnSurface(obstacleTop)) continue;
     if (player.previousFootHeight < obstacleTop || player.footHeight > obstacleTop) continue;
     supportHeight = supportHeight === undefined ? obstacleTop : Math.max(supportHeight, obstacleTop);
   }
@@ -501,10 +595,10 @@ This preserves side blocking on the floor, lets airborne players pass over rocks
 Run:
 
 ```bash
-npm run test:smoke -- --grep "player can jump onto a rock obstacle"
+npm run test:smoke -- --grep "player can jump onto a rock obstacle|player cannot land on an obstacle above jump reach"
 ```
 
-Expected: PASS. The player lands grounded with `surfaceHeight` and `footHeight` close to `0.63`.
+Expected: PASS. The player lands grounded with `surfaceHeight` and `footHeight` close to `0.63` on the reachable rock, and lands back on floor instead of the `2.0m` unreachable test obstacle.
 
 - [ ] **Step 7: Run all smoke tests**
 
@@ -542,6 +636,7 @@ git commit -m "feat: let player jump onto obstacles"
   - Player jumps in an arc and lands on floor: Task 1.
   - Holding `Space` cannot repeatedly jump while airborne: Task 1 one-shot `jumpPressed` plus grounded gate.
   - Player can land on rock obstacle top: Task 2.
+  - Player cannot land on obstacle tops above `1.8m` jump reach: Task 2.
   - No physics dependency: Tasks 1 and 2 use existing custom movement/collision.
   - No new art assets: Tasks 1 and 2 only change code/tests.
 - Placeholder scan:
@@ -549,5 +644,5 @@ git commit -m "feat: let player jump onto obstacles"
   - Every code change step includes exact snippets.
 - Type consistency:
   - `InputManager.consumeJump()` is introduced before `PlayerController.update()` uses it.
-  - `PlayerController` support getters/methods are introduced before `CollisionSystem` uses them.
+  - `PlayerController` support getters/methods, including `canLandOnSurface()`, are introduced before `CollisionSystem` uses them.
   - `CollisionSystem.resolvePlayerVerticalSupport()` is introduced before `GameScene` calls it.
