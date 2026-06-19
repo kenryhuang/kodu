@@ -3,6 +3,8 @@ import { Engine } from "@babylonjs/core/Engines/engine";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { Scene } from "@babylonjs/core/scene";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { InputManager } from "./input/InputManager";
+import { PlayerController } from "./player/PlayerController";
 import { CameraRig } from "./camera/CameraRig";
 import { createMaterials, type CartoonMaterials } from "./world/createMaterials";
 import { createDioramaMap } from "./world/createDioramaMap";
@@ -13,6 +15,8 @@ export class GameScene {
   private materials!: CartoonMaterials;
   private map!: DioramaMap;
   private cameraRig!: CameraRig;
+  private input!: InputManager;
+  private player!: PlayerController;
 
   constructor(
     private readonly engine: Engine,
@@ -27,14 +31,21 @@ export class GameScene {
     this.materials = createMaterials(this.scene);
     this.map = createDioramaMap(this.scene, this.materials);
     this.cameraRig = new CameraRig(this.scene);
+    this.input = new InputManager(this.scene, this.canvas);
+    this.player = new PlayerController(this.scene, this.materials, this.map);
+    this.cameraRig.setTarget(this.player.position);
     this.canvas.focus();
   }
 
-  update(_deltaSeconds: number): void {
+  update(deltaSeconds: number): void {
+    const fireRequest = this.player.update(deltaSeconds, this.input);
+    this.cameraRig.setTarget(this.player.position);
+    void fireRequest;
     this.cameraRig.update();
   }
 
   dispose(): void {
+    this.input?.dispose();
     this.scene.dispose();
     void this.engine;
   }
