@@ -16,6 +16,17 @@ type PlayerSnapshot = {
   surfaceHeight: number;
 };
 
+type VillageSnapshot = {
+  houseBodies: number;
+  houseRoofs: number;
+  pathTiles: number;
+  fenceSegments: number;
+  houseObstacles: Array<{
+    name: string;
+    topHeight: number;
+  }>;
+};
+
 async function sampleCanvasScreenshot(page: Page, canvas: Locator): Promise<{
   width: number;
   height: number;
@@ -89,6 +100,42 @@ async function readProjectileCount(page: Page): Promise<number> {
     const projectiles = app?.gameScene?.projectiles;
     if (!projectiles) throw new Error("Missing projectile system");
     return projectiles.projectiles.length;
+  });
+}
+
+async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
+  return page.evaluate(() => {
+    const app = (globalThis as typeof globalThis & {
+      __KODU_APP__?: {
+        gameScene?: {
+          scene?: { meshes: Array<{ name: string }> };
+          map?: {
+            obstacles: Array<{
+              name: string;
+              center: { y: number };
+              halfExtents: { y: number };
+            }>;
+          };
+        };
+      };
+    }).__KODU_APP__;
+    const scene = app?.gameScene?.scene;
+    const map = app?.gameScene?.map;
+    if (!scene || !map) throw new Error("Missing game scene or map");
+    const names = scene.meshes.map((mesh) => mesh.name);
+    const houseObstacles = map.obstacles
+      .filter((obstacle) => obstacle.name.startsWith("house-") && obstacle.name.endsWith("-body"))
+      .map((obstacle) => ({
+        name: obstacle.name,
+        topHeight: obstacle.center.y + obstacle.halfExtents.y,
+      }));
+    return {
+      houseBodies: names.filter((name) => name.startsWith("house-") && name.endsWith("-body")).length,
+      houseRoofs: names.filter((name) => name.startsWith("house-") && name.endsWith("-roof")).length,
+      pathTiles: names.filter((name) => name.startsWith("village-path-")).length,
+      fenceSegments: names.filter((name) => name.startsWith("fence-")).length,
+      houseObstacles,
+    };
   });
 }
 
@@ -248,6 +295,21 @@ test("space jumps without firing a projectile", async ({ page }) => {
 
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
+});
+
+test("renders village houses as tall blocking obstacles", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#game-canvas")).toBeVisible();
+
+  const village = await readVillageSnapshot(page);
+  expect(village.houseBodies).toBe(3);
+  expect(village.houseRoofs).toBe(3);
+  expect(village.pathTiles).toBeGreaterThanOrEqual(4);
+  expect(village.fenceSegments).toBeGreaterThanOrEqual(4);
+  expect(village.houseObstacles).toHaveLength(3);
+  for (const obstacle of village.houseObstacles) {
+    expect(obstacle.topHeight).toBeGreaterThan(1.8);
+  }
 });
 
 test("player can jump onto a rock obstacle", async ({ page }) => {

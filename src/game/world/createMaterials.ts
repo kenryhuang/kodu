@@ -20,6 +20,10 @@ export function createMaterials(scene: Scene) {
     npc: make("mat-npc", new Color3(0.9, 0.26, 0.18)),
     projectile: make("mat-projectile", new Color3(1.0, 0.85, 0.25)),
     stone: make("mat-stone", new Color3(0.56, 0.62, 0.6)),
+    houseWall: make("mat-house-wall", new Color3(0.86, 0.72, 0.54)),
+    houseRoof: make("mat-house-roof", new Color3(0.68, 0.23, 0.16)),
+    fenceWood: make("mat-fence-wood", new Color3(0.57, 0.38, 0.21)),
+    pathDirt: make("mat-path-dirt", new Color3(0.55, 0.4, 0.25)),
     treeTrunk: make("mat-tree-trunk", new Color3(0.48, 0.3, 0.18)),
     treeTop: make("mat-tree-top", new Color3(0.25, 0.58, 0.3)),
   };
