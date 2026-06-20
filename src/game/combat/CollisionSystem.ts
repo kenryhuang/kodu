@@ -48,6 +48,36 @@ function resolveCircleAgainstObstacle(position: Vector3, radius: number, obstacl
   return candidates.reduce((best, candidate) => (candidate.lengthSquared() < best.lengthSquared() ? candidate : best));
 }
 
+function overlapsObstacleTop(position: Vector3, radius: number, obstacle: Obstacle): boolean {
+  const bounds = getObstacleBounds(obstacle);
+  return (
+    position.x + radius > bounds.minX &&
+    position.x - radius < bounds.maxX &&
+    position.z + radius > bounds.minZ &&
+    position.z - radius < bounds.maxZ
+  );
+}
+
+function getHighestObstacleSupport(player: PlayerController, map: DioramaMap): number | undefined {
+  let supportHeight: number | undefined;
+  for (const obstacle of map.obstacles) {
+    if (!overlapsObstacleTop(player.position, player.radius, obstacle)) continue;
+    const obstacleTop = obstacle.center.y + obstacle.halfExtents.y;
+    if (!player.canLandOnSurface(obstacleTop)) continue;
+    if (player.previousFootHeight < obstacleTop || player.footHeight > obstacleTop) continue;
+    supportHeight = supportHeight === undefined ? obstacleTop : Math.max(supportHeight, obstacleTop);
+  }
+  return supportHeight;
+}
+
+function hasSupportAtHeight(player: PlayerController, map: DioramaMap, surfaceHeight: number): boolean {
+  if (surfaceHeight <= collisionEpsilon) return true;
+  return map.obstacles.some((obstacle) => {
+    const obstacleTop = obstacle.center.y + obstacle.halfExtents.y;
+    return Math.abs(obstacleTop - surfaceHeight) <= collisionEpsilon && overlapsObstacleTop(player.position, player.radius, obstacle);
+  });
+}
+
 export class CollisionSystem {
   resolvePlayerObstacles(player: PlayerController, map: DioramaMap): void {
     for (let pass = 0; pass < 3; pass += 1) {
@@ -59,6 +89,20 @@ export class CollisionSystem {
         moved = true;
       }
       if (!moved) break;
+    }
+  }
+
+  resolvePlayerVerticalSupport(player: PlayerController, map: DioramaMap): void {
+    if (player.isDescending) {
+      const obstacleSupport = getHighestObstacleSupport(player, map);
+      if (obstacleSupport !== undefined) {
+        player.landOnSurface(obstacleSupport);
+        return;
+      }
+    }
+
+    if (player.isGrounded && !hasSupportAtHeight(player, map, player.surfaceHeight)) {
+      player.startFalling();
     }
   }
 

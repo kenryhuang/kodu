@@ -92,6 +92,82 @@ async function readProjectileCount(page: Page): Promise<number> {
   });
 }
 
+async function placePlayer(page: Page, x: number, z: number): Promise<void> {
+  await page.evaluate(({ x: nextX, z: nextZ }) => {
+    const app = (globalThis as typeof globalThis & {
+      __KODU_APP__?: {
+        gameScene?: {
+          player?: {
+            position: { x: number; z: number };
+            landOnSurface(surfaceHeight: number): void;
+            clampToBounds(): void;
+          };
+        };
+      };
+    }).__KODU_APP__;
+    const player = app?.gameScene?.player;
+    if (!player) throw new Error("Missing player controller");
+    player.position.x = nextX;
+    player.position.z = nextZ;
+    player.landOnSurface(0);
+    player.clampToBounds();
+  }, { x, z });
+}
+
+async function dropPlayerFromHeight(page: Page, x: number, centerY: number, z: number): Promise<void> {
+  await page.evaluate(({ x: nextX, centerY: nextY, z: nextZ }) => {
+    const app = (globalThis as typeof globalThis & {
+      __KODU_APP__?: {
+        gameScene?: {
+          player?: {
+            position: { x: number; y: number; z: number };
+            landOnSurface(surfaceHeight: number): void;
+            startFalling(): void;
+            clampToBounds(): void;
+          };
+        };
+      };
+    }).__KODU_APP__;
+    const player = app?.gameScene?.player;
+    if (!player) throw new Error("Missing player controller");
+    player.landOnSurface(0);
+    player.position.x = nextX;
+    player.position.y = nextY;
+    player.position.z = nextZ;
+    player.startFalling();
+    player.clampToBounds();
+  }, { x, centerY, z });
+}
+
+async function addTestObstacle(
+  page: Page,
+  obstacle: {
+    name: string;
+    center: { x: number; y: number; z: number };
+    halfExtents: { x: number; y: number; z: number };
+  },
+): Promise<void> {
+  await page.evaluate((nextObstacle) => {
+    const app = (globalThis as typeof globalThis & {
+      __KODU_APP__?: {
+        gameScene?: {
+          map?: {
+            obstacles: Array<{
+              name: string;
+              center: { x: number; y: number; z: number };
+              halfExtents: { x: number; y: number; z: number };
+              mesh?: unknown;
+            }>;
+          };
+        };
+      };
+    }).__KODU_APP__;
+    const map = app?.gameScene?.map;
+    if (!map) throw new Error("Missing diorama map");
+    map.obstacles.push({ ...nextObstacle, mesh: undefined });
+  }, obstacle);
+}
+
 async function readCameraSnapshot(page: Page): Promise<CameraSnapshot> {
   return page.evaluate(() => {
     const app = (globalThis as typeof globalThis & { __KODU_APP__?: { gameScene?: { scene?: { activeCamera?: Record<string, number>; getEngine(): { getRenderWidth(): number; getRenderHeight(): number } } } } }).__KODU_APP__;
@@ -172,6 +248,92 @@ test("space jumps without firing a projectile", async ({ page }) => {
 
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
+});
+
+test("player can jump onto a rock obstacle", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#game-canvas")).toBeVisible();
+
+  const rockWestTop = 0.63;
+  const rockWestMinX = -3.8;
+  const rockWestMaxX = -2.4;
+  const playerRadius = 0.42;
+  await placePlayer(page, -4.25, -1.4);
+  const before = await readPlayerSnapshot(page);
+  expect(before.footHeight).toBeCloseTo(0, 1);
+
+  await page.keyboard.down("Space");
+  await page.keyboard.down("KeyD");
+  await page.waitForFunction(() => {
+    const app = (globalThis as typeof globalThis & {
+      __KODU_APP__?: {
+        gameScene?: {
+          player?: {
+            position: { x: number };
+            footHeight: number;
+          };
+        };
+      };
+    }).__KODU_APP__;
+    const player = app?.gameScene?.player;
+    return Boolean(player && player.position.x > -3.45 && player.footHeight > 0.18);
+  });
+  await page.keyboard.up("KeyD");
+  await page.keyboard.up("Space");
+  await page.waitForFunction(() => {
+    const app = (globalThis as typeof globalThis & {
+      __KODU_APP__?: {
+        gameScene?: {
+          player?: {
+            isGrounded: boolean;
+            surfaceHeight: number;
+          };
+        };
+      };
+    }).__KODU_APP__;
+    const player = app?.gameScene?.player;
+    return Boolean(player && player.isGrounded && Math.abs(player.surfaceHeight - 0.63) < 0.05);
+  });
+
+  const after = await readPlayerSnapshot(page);
+  expect(after.grounded).toBe(true);
+  expect(after.surfaceHeight).toBeCloseTo(rockWestTop, 1);
+  expect(after.footHeight).toBeCloseTo(rockWestTop, 1);
+  expect(after.x + playerRadius).toBeGreaterThan(rockWestMinX);
+  expect(after.x - playerRadius).toBeLessThan(rockWestMaxX);
+});
+
+test("player cannot land on an obstacle above jump reach", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#game-canvas")).toBeVisible();
+
+  const unreachableTop = 2.0;
+  await addTestObstacle(page, {
+    name: "test-high-obstacle",
+    center: { x: -3.1, y: 1.0, z: 2.8 },
+    halfExtents: { x: 0.85, y: 1.0, z: 0.65 },
+  });
+  await dropPlayerFromHeight(page, -3.1, 3.1, 2.8);
+  await page.waitForFunction(() => {
+    const app = (globalThis as typeof globalThis & {
+      __KODU_APP__?: {
+        gameScene?: {
+          player?: {
+            footHeight: number;
+            isGrounded: boolean;
+            surfaceHeight: number;
+          };
+        };
+      };
+    }).__KODU_APP__;
+    const player = app?.gameScene?.player;
+    return Boolean(player && player.isGrounded && Math.abs(player.surfaceHeight) < 0.05 && Math.abs(player.footHeight) < 0.05);
+  });
+
+  const after = await readPlayerSnapshot(page);
+  expect(after.grounded).toBe(true);
+  expect(after.surfaceHeight).not.toBeCloseTo(unreachableTop, 1);
+  expect(after.footHeight).toBeCloseTo(0, 1);
 });
 
 test("updates orthographic bounds when the viewport resizes", async ({ page }) => {

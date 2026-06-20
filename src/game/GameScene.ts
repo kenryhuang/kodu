@@ -57,7 +57,10 @@ export class GameScene {
   update(deltaSeconds: number): void {
     const fireRequest = this.player.update(deltaSeconds, this.input);
     if (fireRequest) this.projectiles.spawn(fireRequest.origin, fireRequest.direction);
-    this.collisions.resolvePlayerObstacles(this.player, this.map);
+    if (this.player.isGroundedOnFloor) {
+      this.collisions.resolvePlayerObstacles(this.player, this.map);
+    }
+    this.collisions.resolvePlayerVerticalSupport(this.player, this.map);
     this.player.clampToBounds();
     this.projectiles.update(deltaSeconds);
     this.npcs.update(deltaSeconds);
