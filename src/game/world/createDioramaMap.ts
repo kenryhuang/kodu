@@ -248,6 +248,7 @@ export function createDioramaMap(scene: Scene, materials: CartoonMaterials): Dio
   edge.material = materials.edge;
 
   addTerrainLayer("terrain-sand-south-east", new Vector3(8.5, 0.035, -6.4), 7.2, 4.8, -0.15, scene, materials.terrainSand);
+  addTerrainLayer("terrain-sand-village-grove", new Vector3(4.7, 0.041, -2.65), 4.3, 2.6, -0.28, scene, materials.terrainSand);
   addTerrainLayer("terrain-road-center", new Vector3(0, 0.045, 0.4), 1.25, 8.2, 0.08, scene, materials.terrainRoad);
   addTerrainLayer("terrain-road-north", new Vector3(-1.2, 0.046, 6.8), 1.05, 8.5, -0.28, scene, materials.terrainRoad);
   addTerrainLayer("terrain-road-east", new Vector3(8.2, 0.047, 2.1), 1.05, 11.5, Math.PI / 2 - 0.16, scene, materials.terrainRoad);

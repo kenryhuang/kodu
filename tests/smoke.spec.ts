@@ -510,7 +510,7 @@ test("renders village houses as tall blocking obstacles", async ({ page }) => {
 
   const village = await readVillageSnapshot(page);
   expect(village.terrainGrounds).toBe(1);
-  expect(village.terrainSandLayers).toBeGreaterThanOrEqual(1);
+  expect(village.terrainSandLayers).toBeGreaterThanOrEqual(2);
   expect(village.terrainRoadLayers).toBeGreaterThanOrEqual(4);
   expect(village.terrainTextureMaterials).toBeGreaterThanOrEqual(3);
   expect(village.mapBounds.maxX - village.mapBounds.minX).toBeGreaterThanOrEqual(32);
