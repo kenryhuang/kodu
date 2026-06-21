@@ -42,6 +42,12 @@ type HouseStyle = {
 
 type PatchPoint = readonly [number, number];
 
+type RoadRoutePoint = {
+  readonly x: number;
+  readonly z: number;
+  readonly width: number;
+};
+
 type TreeStyle = {
   readonly scale: number;
   readonly yaw: number;
@@ -345,6 +351,97 @@ function makeOrganicPatchPoints(width: number, depth: number, variant: number): 
   return template.map(([x, z]) => [x * width, z * depth]);
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function terrainVisualHeightAt(x: number, z: number): number {
+  const nx = x / 18;
+  const nz = z / 14;
+  const radius = Math.sqrt(nx * nx + nz * nz);
+  const roadNorth = Math.abs(nx + nz * 0.12) < 0.08 && nz < 0.62;
+  const roadEast = Math.abs(nz - 0.16) < 0.08 && nx > -0.1;
+  const roadSouthWest = Math.abs(nz - nx * 0.36) < 0.09 && nx < 0.15 && nz > -0.78;
+  let value = 34 + clamp(radius - 0.35, 0, 1) * 110;
+  if (roadNorth || roadEast || roadSouthWest) value = Math.min(value, 72);
+  const shade = clamp(value, 20, 180);
+  return -0.12 + (shade / 255) * 1.02;
+}
+
+function roadJitter(index: number, side: number): number {
+  return Math.sin(index * 12.9898 + side * 78.233) * 0.11 + Math.sin(index * 4.17 + side * 1.9) * 0.05;
+}
+
+function sampleRoute(route: RoadRoutePoint[], stepsPerSegment: number): RoadRoutePoint[] {
+  const samples: RoadRoutePoint[] = [];
+  for (let segment = 0; segment < route.length - 1; segment += 1) {
+    const a = route[segment];
+    const b = route[segment + 1];
+    for (let step = 0; step < stepsPerSegment; step += 1) {
+      const t = step / stepsPerSegment;
+      const eased = t * t * (3 - t * 2);
+      samples.push({
+        x: a.x + (b.x - a.x) * eased,
+        z: a.z + (b.z - a.z) * eased,
+        width: a.width + (b.width - a.width) * eased,
+      });
+    }
+  }
+  samples.push(route[route.length - 1]);
+  return samples;
+}
+
+function addRoadRibbon(name: string, route: RoadRoutePoint[], scene: Scene, material: StandardMaterial): Mesh {
+  const samples = sampleRoute(route, 8);
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  let traveled = 0;
+
+  for (let index = 0; index < samples.length; index += 1) {
+    const current = samples[index];
+    const previous = samples[Math.max(0, index - 1)];
+    const next = samples[Math.min(samples.length - 1, index + 1)];
+    if (index > 0) {
+      const dx = current.x - previous.x;
+      const dz = current.z - previous.z;
+      traveled += Math.sqrt(dx * dx + dz * dz);
+    }
+
+    const tangentX = next.x - previous.x;
+    const tangentZ = next.z - previous.z;
+    const length = Math.max(0.001, Math.sqrt(tangentX * tangentX + tangentZ * tangentZ));
+    const normalX = -tangentZ / length;
+    const normalZ = tangentX / length;
+    const leftWidth = current.width * 0.5 + roadJitter(index, -1);
+    const rightWidth = current.width * 0.5 + roadJitter(index, 1);
+    const leftX = current.x + normalX * leftWidth;
+    const leftZ = current.z + normalZ * leftWidth;
+    const rightX = current.x - normalX * rightWidth;
+    const rightZ = current.z - normalZ * rightWidth;
+    positions.push(leftX, terrainVisualHeightAt(leftX, leftZ) + 0.055, leftZ);
+    positions.push(rightX, terrainVisualHeightAt(rightX, rightZ) + 0.055, rightZ);
+    normals.push(0, 1, 0, 0, 1, 0);
+    uvs.push(0, traveled / 5, 1, traveled / 5);
+  }
+
+  for (let index = 0; index < samples.length - 1; index += 1) {
+    const left = index * 2;
+    indices.push(left, left + 2, left + 1, left + 1, left + 2, left + 3);
+  }
+
+  const mesh = new Mesh(name, scene);
+  const vertexData = new VertexData();
+  vertexData.positions = positions;
+  vertexData.indices = indices;
+  vertexData.normals = normals;
+  vertexData.uvs = uvs;
+  vertexData.applyToMesh(mesh);
+  mesh.material = material;
+  return mesh;
+}
+
 function addTerrainPatch(
   name: string,
   position: Vector3,
@@ -390,10 +487,6 @@ function addTerrainPatch(
   mesh.material = material;
 }
 
-function addPathTile(name: string, position: Vector3, width: number, depth: number, rotationY: number, scene: Scene, materials: CartoonMaterials): void {
-  addTerrainPatch(name, position, width, depth, rotationY, scene, materials.pathDirt, name.length % organicPatchTemplates.length);
-}
-
 function addFenceSegment(name: string, position: Vector3, length: number, rotationY: number, scene: Scene, materials: CartoonMaterials): void {
   const rail = MeshBuilder.CreateBox(name, { width: length, height: 0.16, depth: 0.08 }, scene);
   rail.position = position;
@@ -417,10 +510,28 @@ export function createDioramaMap(scene: Scene, materials: CartoonMaterials): Dio
 
   addTerrainPatch("terrain-patch-sand-south-east", new Vector3(8.5, 0.035, -6.4), 7.2, 4.8, -0.15, scene, materials.terrainSand, 0);
   addTerrainPatch("terrain-patch-sand-village-grove", new Vector3(4.7, 0.041, -2.65), 4.3, 2.6, -0.28, scene, materials.terrainSand, 1);
-  addTerrainPatch("terrain-patch-road-center", new Vector3(0, 0.045, 0.4), 1.25, 8.2, 0.08, scene, materials.terrainRoad, 2);
-  addTerrainPatch("terrain-patch-road-north", new Vector3(-1.2, 0.046, 6.8), 1.05, 8.5, -0.28, scene, materials.terrainRoad, 1);
-  addTerrainPatch("terrain-patch-road-east", new Vector3(8.2, 0.047, 2.1), 1.05, 11.5, Math.PI / 2 - 0.16, scene, materials.terrainRoad, 0);
-  addTerrainPatch("terrain-patch-road-south-west", new Vector3(-7.3, 0.048, -5.2), 1.05, 10.4, Math.PI / 2 + 0.32, scene, materials.terrainRoad, 2);
+  addRoadRibbon("terrain-road-main", [
+    { x: -17.4, z: -11.4, width: 1.28 },
+    { x: -11.2, z: -6.6, width: 1.42 },
+    { x: -5.6, z: -2.8, width: 1.18 },
+    { x: -0.8, z: 0.35, width: 1.52 },
+    { x: 4.8, z: 2.0, width: 1.34 },
+    { x: 10.2, z: 5.8, width: 1.18 },
+    { x: 17.4, z: 10.6, width: 1.42 },
+  ], scene, materials.terrainRoad);
+  addRoadRibbon("terrain-road-spur-north-house", [
+    { x: -0.8, z: 0.35, width: 0.72 },
+    { x: -1.05, z: 1.8, width: 0.82 },
+    { x: -1.2, z: 2.75, width: 0.68 },
+  ], scene, materials.pathDirt);
+  addRoadRibbon("terrain-road-spur-east-house", [
+    { x: 4.8, z: 2.0, width: 0.76 },
+    { x: 5.2, z: 2.15, width: 0.62 },
+  ], scene, materials.pathDirt);
+  addRoadRibbon("terrain-road-spur-south-west-house", [
+    { x: -5.6, z: -2.8, width: 0.82 },
+    { x: -4.95, z: -3.05, width: 0.66 },
+  ], scene, materials.pathDirt);
 
   const obstacles = [
     makeObstacle("rock-west", new Vector3(-3.1, 0.28, -1.4), new Vector3(0.7, 0.35, 0.55), scene, materials),
@@ -475,11 +586,6 @@ export function createDioramaMap(scene: Scene, materials: CartoonMaterials): Dio
   addTree("tree-village-grove-b", new Vector3(7.4, 0, 4.9), scene, materials, { scale: 1.1, yaw: -1.05, shape: "round" });
   addTree("tree-west-meadow", new Vector3(-8.35, 0, 0.85), scene, materials, { scale: 0.88, yaw: 2.1, shape: "tall" });
   addTree("tree-south-meadow", new Vector3(-1.7, 0, -6.4), scene, materials, { scale: 1.18, yaw: 0.75, shape: "wide" });
-
-  addPathTile("village-path-center", new Vector3(0, 0.02, 0.4), 1.0, 3.4, 0.1, scene, materials);
-  addPathTile("village-path-north", new Vector3(-0.75, 0.021, 2.2), 0.85, 2.0, -0.35, scene, materials);
-  addPathTile("village-path-east", new Vector3(3.25, 0.022, 1.55), 0.8, 2.8, Math.PI / 2 - 0.2, scene, materials);
-  addPathTile("village-path-south-west", new Vector3(-3.6, 0.023, -2.1), 0.78, 2.4, Math.PI / 2 + 0.25, scene, materials);
 
   addFenceSegment("fence-north-a", new Vector3(-2.35, 0.18, 2.42), 0.9, 0, scene, materials);
   addFenceSegment("fence-north-b", new Vector3(-0.2, 0.18, 2.45), 0.75, 0, scene, materials);
