@@ -323,16 +323,33 @@ async function readCameraSnapshot(page: Page): Promise<CameraSnapshot> {
 
 test("terrain image assets are served", async ({ page }) => {
   await page.goto("/");
-  for (const asset of [
+  const assets = [
     "/assets/terrain/heightmap-valley.png",
     "/assets/terrain/grass.png",
     "/assets/terrain/sand.png",
     "/assets/terrain/road.png",
-  ]) {
+  ];
+  for (const asset of assets) {
     const response = await page.request.get(asset);
     expect(response.ok()).toBe(true);
     expect(response.headers()["content-type"]).toContain("image/png");
     expect((await response.body()).byteLength).toBeGreaterThan(500);
+  }
+
+  const dimensions = await page.evaluate(async (imageAssets) => Promise.all(imageAssets.map((asset) => new Promise<{
+    asset: string;
+    width: number;
+    height: number;
+  }>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve({ asset, width: image.naturalWidth, height: image.naturalHeight });
+    image.onerror = () => reject(new Error(`Could not load ${asset}`));
+    image.src = asset;
+  }))), assets);
+
+  for (const image of dimensions.filter(({ asset }) => asset !== "/assets/terrain/heightmap-valley.png")) {
+    expect(image.width, `${image.asset} width`).toBeGreaterThanOrEqual(128);
+    expect(image.height, `${image.asset} height`).toBeGreaterThanOrEqual(128);
   }
 });
 

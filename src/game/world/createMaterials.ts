@@ -42,14 +42,15 @@ export function createMaterials(scene: Scene) {
     url: string,
     fallbackColor: Color3,
     tileScale: number,
+    vTileScale = tileScale,
   ): StandardMaterial => {
     const material = make(name, fallbackColor);
     const texture = new Texture(url, scene, {
       invertY: false,
-      samplingMode: Texture.NEAREST_SAMPLINGMODE,
+      samplingMode: Texture.BILINEAR_SAMPLINGMODE,
     });
     texture.uScale = tileScale;
-    texture.vScale = tileScale;
+    texture.vScale = vTileScale;
     texture.wrapU = Texture.WRAP_ADDRESSMODE;
     texture.wrapV = Texture.WRAP_ADDRESSMODE;
     material.diffuseTexture = texture;
@@ -120,9 +121,9 @@ export function createMaterials(scene: Scene) {
 
   return {
     grass: make("mat-grass", new Color3(0.42, 0.72, 0.36)),
-    terrainGrass: makeImageTextured("mat-terrain-grass", "/assets/terrain/grass.png", new Color3(0.42, 0.72, 0.36), 12),
-    terrainSand: makeImageTextured("mat-terrain-sand", "/assets/terrain/sand.png", new Color3(0.78, 0.64, 0.38), 5),
-    terrainRoad: makeImageTextured("mat-terrain-road", "/assets/terrain/road.png", new Color3(0.55, 0.4, 0.25), 4),
+    terrainGrass: makeImageTextured("mat-terrain-grass", "/assets/terrain/grass.png", new Color3(0.42, 0.72, 0.36), 10, 8),
+    terrainSand: makeImageTextured("mat-terrain-sand", "/assets/terrain/sand.png", new Color3(0.78, 0.64, 0.38), 3, 2.5),
+    terrainRoad: makeImageTextured("mat-terrain-road", "/assets/terrain/road.png", new Color3(0.55, 0.4, 0.25), 1, 6),
     edge: make("mat-edge", new Color3(0.34, 0.52, 0.29)),
     player: make("mat-player", new Color3(0.18, 0.42, 0.92)),
     npc: make("mat-npc", new Color3(0.9, 0.26, 0.18)),
@@ -138,7 +139,7 @@ export function createMaterials(scene: Scene) {
     houseChimney: make("mat-house-chimney", new Color3(0.5, 0.26, 0.2)),
     houseRoofRidge: make("mat-house-roof-ridge", new Color3(0.32, 0.18, 0.16)),
     fenceWood: make("mat-fence-wood", new Color3(0.57, 0.38, 0.21)),
-    pathDirt: make("mat-path-dirt", new Color3(0.55, 0.4, 0.25)),
+    pathDirt: makeImageTextured("mat-path-dirt", "/assets/terrain/road.png", new Color3(0.55, 0.4, 0.25), 1, 4),
     treeTrunk: make("mat-tree-trunk", new Color3(0.48, 0.3, 0.18)),
     treeBarkLight: make("mat-tree-bark-light", new Color3(0.68, 0.45, 0.25)),
     treeTop: make("mat-tree-top", new Color3(0.25, 0.58, 0.3)),
