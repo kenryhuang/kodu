@@ -42,6 +42,12 @@ type VillageSnapshot = {
   treeBranches: number;
   treeCanopies: number;
   treeLeafCards: number;
+  treeLeafVolumes: number;
+  treeLeafVolumeVertices: number;
+  treeLeafShells: number;
+  treeStyleVariants: number;
+  treeFoliageAlphaTestMaterials: number;
+  treeFoliageAlphaBlendMaterials: number;
   treeLeafHighlights: number;
   grassCards: number;
   bushCards: number;
@@ -164,7 +170,9 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
           scene?: {
             materials: Array<{
               name: string;
+              transparencyMode?: number | null;
               useAlphaFromDiffuseTexture?: boolean;
+              needAlphaTesting?: () => boolean;
             }>;
             meshes: Array<{
               name: string;
@@ -210,6 +218,24 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
       || material.name === "mat-bush-card"
       || material.name === "mat-grass-card"
     ) && material.useAlphaFromDiffuseTexture);
+    const treeLeafVolumeMeshes = scene.meshes.filter((mesh) => (
+      mesh.name.startsWith("tree-") && mesh.name.includes("-leaf-volume-")
+    ));
+    const treeStyleIds = new Set(
+      treeLeafVolumeMeshes
+        .map((mesh) => /-style-([a-z-]+)-leaf-volume-/.exec(mesh.name)?.[1])
+        .filter((style): style is string => Boolean(style)),
+    );
+    const treeFoliageMaterials = scene.materials.filter((material) => (
+      material.name === "mat-tree-leaf-mask"
+      || material.name === "mat-tree-leaf-shell"
+    ));
+    const treeFoliageAlphaTestMaterials = treeFoliageMaterials.filter((material) => (
+      material.transparencyMode === 1 || Boolean(material.needAlphaTesting?.())
+    ));
+    const treeFoliageAlphaBlendMaterials = treeFoliageMaterials.filter((material) => (
+      material.transparencyMode === 2
+    ));
     const repeatedAlphaMaterials = blendedTerrainMaterials.filter((material) => {
       const texture = (material as unknown as {
         diffuseTexture?: {
@@ -263,6 +289,12 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
       treeBranches: names.filter((name) => name.startsWith("tree-") && name.includes("-branch-")).length,
       treeCanopies: names.filter((name) => name.startsWith("tree-") && name.includes("-canopy-")).length,
       treeLeafCards: names.filter((name) => name.startsWith("tree-") && name.includes("-leaf-card-")).length,
+      treeLeafVolumes: treeLeafVolumeMeshes.length,
+      treeLeafVolumeVertices: treeLeafVolumeMeshes.reduce((sum, mesh) => sum + mesh.getTotalVertices(), 0),
+      treeLeafShells: names.filter((name) => name.startsWith("tree-") && name.includes("-leaf-shell-")).length,
+      treeStyleVariants: treeStyleIds.size,
+      treeFoliageAlphaTestMaterials: treeFoliageAlphaTestMaterials.length,
+      treeFoliageAlphaBlendMaterials: treeFoliageAlphaBlendMaterials.length,
       treeLeafHighlights: names.filter((name) => name.startsWith("tree-") && name.includes("-leaf-highlight-")).length,
       grassCards: names.filter((name) => name.startsWith("grass-card-")).length,
       bushCards: names.filter((name) => name.startsWith("bush-card-")).length,
@@ -411,6 +443,8 @@ test("terrain image assets are served", async ({ page }) => {
     "/assets/terrain/sand.png",
     "/assets/terrain/road.png",
     "/assets/vegetation/tree-leaves.png",
+    "/assets/vegetation/tree-leaf-shell.png",
+    "/assets/vegetation/tree-bark.png",
     "/assets/vegetation/bush.png",
     "/assets/vegetation/grass-card.png",
   ];
@@ -612,7 +646,13 @@ test("renders village houses as tall blocking obstacles", async ({ page }) => {
   expect(village.treeRoots).toBeGreaterThanOrEqual(15);
   expect(village.treeBranches).toBeGreaterThanOrEqual(10);
   expect(village.treeCanopies).toBe(0);
-  expect(village.treeLeafCards).toBeGreaterThanOrEqual(48);
+  expect(village.treeLeafCards).toBeLessThanOrEqual(12);
+  expect(village.treeLeafVolumes).toBeGreaterThanOrEqual(24);
+  expect(village.treeLeafVolumeVertices).toBeGreaterThanOrEqual(480);
+  expect(village.treeLeafShells).toBeGreaterThanOrEqual(18);
+  expect(village.treeStyleVariants).toBeGreaterThanOrEqual(3);
+  expect(village.treeFoliageAlphaTestMaterials).toBeGreaterThanOrEqual(2);
+  expect(village.treeFoliageAlphaBlendMaterials).toBe(0);
   expect(village.grassCards).toBeGreaterThanOrEqual(18);
   expect(village.bushCards).toBeGreaterThanOrEqual(8);
   expect(village.mapBounds.maxX - village.mapBounds.minX).toBeGreaterThanOrEqual(32);

@@ -1,4 +1,4 @@
-import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
@@ -48,10 +48,46 @@ type RoadRoutePoint = {
   readonly width: number;
 };
 
+type TreeVariant = "broad" | "tall" | "bent";
+
+type LeafLobe = {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly sx: number;
+  readonly sy: number;
+  readonly sz: number;
+};
+
 type TreeStyle = {
   readonly scale: number;
   readonly yaw: number;
-  readonly shape: "round" | "tall" | "wide";
+  readonly variant: TreeVariant;
+  readonly trunkLean: number;
+  readonly canopy: LeafLobe[];
+};
+
+const treePresets: Record<TreeVariant, LeafLobe[]> = {
+  broad: [
+    { id: "core", x: 0.02, y: 1.28, z: 0, sx: 1.24, sy: 0.9, sz: 1.08 },
+    { id: "front", x: 0.16, y: 1.12, z: -0.38, sx: 0.92, sy: 0.72, sz: 0.76 },
+    { id: "back", x: -0.12, y: 1.18, z: 0.38, sx: 0.9, sy: 0.72, sz: 0.78 },
+    { id: "left", x: -0.46, y: 1.16, z: 0.02, sx: 0.82, sy: 0.7, sz: 0.76 },
+    { id: "right", x: 0.46, y: 1.2, z: 0.1, sx: 0.82, sy: 0.68, sz: 0.74 },
+  ],
+  tall: [
+    { id: "base", x: 0, y: 1.18, z: 0.02, sx: 0.92, sy: 0.78, sz: 0.82 },
+    { id: "mid", x: 0.08, y: 1.48, z: -0.04, sx: 0.82, sy: 0.86, sz: 0.74 },
+    { id: "top", x: -0.04, y: 1.82, z: 0.04, sx: 0.68, sy: 0.8, sz: 0.62 },
+    { id: "side", x: -0.36, y: 1.38, z: 0.12, sx: 0.66, sy: 0.62, sz: 0.62 },
+  ],
+  bent: [
+    { id: "anchor", x: 0.06, y: 1.14, z: 0, sx: 0.98, sy: 0.76, sz: 0.86 },
+    { id: "sweep", x: 0.46, y: 1.34, z: -0.12, sx: 0.92, sy: 0.72, sz: 0.78 },
+    { id: "crown", x: 0.68, y: 1.62, z: 0.12, sx: 0.74, sy: 0.7, sz: 0.68 },
+    { id: "tail", x: -0.28, y: 1.28, z: 0.24, sx: 0.7, sy: 0.62, sz: 0.64 },
+  ],
 };
 
 function toHouseWorld(center: Vector3, yaw: number, localX: number, y: number, localZ: number): Vector3 {
@@ -61,6 +97,16 @@ function toHouseWorld(center: Vector3, yaw: number, localX: number, y: number, l
     center.x + localX * cos + localZ * sin,
     y,
     center.z - localX * sin + localZ * cos,
+  );
+}
+
+function toTreeWorld(origin: Vector3, yaw: number, localX: number, localY: number, localZ: number): Vector3 {
+  const cos = Math.cos(yaw);
+  const sin = Math.sin(yaw);
+  return new Vector3(
+    origin.x + localX * cos + localZ * sin,
+    origin.y + localY,
+    origin.z - localX * sin + localZ * cos,
   );
 }
 
@@ -102,6 +148,32 @@ function addSimpleBox(
   mesh.material = material;
 }
 
+function addAngledCylinder(
+  name: string,
+  start: Vector3,
+  end: Vector3,
+  diameterBottom: number,
+  diameterTop: number,
+  material: StandardMaterial,
+  scene: Scene,
+  tessellation = 7,
+): void {
+  const axis = end.subtract(start);
+  const height = axis.length();
+  if (height <= 0.001) return;
+
+  const direction = axis.normalize();
+  const mesh = MeshBuilder.CreateCylinder(name, {
+    height,
+    diameterBottom,
+    diameterTop,
+    tessellation,
+  }, scene);
+  mesh.position = start.add(end).scale(0.5);
+  mesh.rotationQuaternion = Quaternion.FromUnitVectorsToRef(Vector3.UpReadOnly, direction, new Quaternion());
+  mesh.material = material;
+}
+
 function addVegetationCard(
   name: string,
   position: Vector3,
@@ -130,6 +202,86 @@ function addCrossCards(
 ): void {
   addVegetationCard(`${prefix}-0`, position, width, height, yaw, material, scene);
   addVegetationCard(`${prefix}-1`, position, width * 0.94, height * 0.98, yaw + Math.PI / 2, material, scene);
+}
+
+function addLeafVolume(
+  name: string,
+  position: Vector3,
+  radiusX: number,
+  radiusY: number,
+  radiusZ: number,
+  yaw: number,
+  material: StandardMaterial,
+  scene: Scene,
+  seed: number,
+): void {
+  const rings = 4;
+  const segments = 9;
+  const positions: number[] = [0, -radiusY * 0.58, 0];
+  const uvs: number[] = [0.5, 1];
+  const indices: number[] = [];
+
+  for (let ring = 0; ring < rings; ring += 1) {
+    const v = (ring + 1) / (rings + 1);
+    const latitude = -Math.PI / 2 + v * Math.PI;
+    const ringRadius = Math.cos(latitude);
+    const y = Math.sin(latitude) * radiusY * 0.58;
+    for (let segment = 0; segment < segments; segment += 1) {
+      const theta = (segment / segments) * Math.PI * 2;
+      const facet = 1 + Math.sin(theta * 2.7 + seed * 1.9 + ring * 0.8) * 0.075;
+      const shoulder = 1 + Math.cos(theta * 1.6 + seed + ring * 0.55) * 0.055;
+      positions.push(
+        Math.cos(theta) * radiusX * 0.5 * ringRadius * facet,
+        y,
+        Math.sin(theta) * radiusZ * 0.5 * ringRadius * shoulder,
+      );
+      uvs.push(segment / segments, v);
+    }
+  }
+
+  const topIndex = positions.length / 3;
+  positions.push(0, radiusY * 0.62, 0);
+  uvs.push(0.5, 0);
+
+  for (let segment = 0; segment < segments; segment += 1) {
+    const current = 1 + segment;
+    const next = 1 + ((segment + 1) % segments);
+    indices.push(0, current, next);
+  }
+
+  for (let ring = 0; ring < rings - 1; ring += 1) {
+    const currentRing = 1 + ring * segments;
+    const nextRing = currentRing + segments;
+    for (let segment = 0; segment < segments; segment += 1) {
+      const current = currentRing + segment;
+      const currentNext = currentRing + ((segment + 1) % segments);
+      const next = nextRing + segment;
+      const nextNext = nextRing + ((segment + 1) % segments);
+      indices.push(current, next, currentNext, currentNext, next, nextNext);
+    }
+  }
+
+  const lastRing = 1 + (rings - 1) * segments;
+  for (let segment = 0; segment < segments; segment += 1) {
+    const current = lastRing + segment;
+    const next = lastRing + ((segment + 1) % segments);
+    indices.push(current, topIndex, next);
+  }
+
+  const normals = new Array<number>(positions.length).fill(0);
+  VertexData.ComputeNormals(positions, indices, normals);
+
+  const mesh = new Mesh(name, scene);
+  const vertexData = new VertexData();
+  vertexData.positions = positions;
+  vertexData.indices = indices;
+  vertexData.normals = normals;
+  vertexData.uvs = uvs;
+  vertexData.applyToMesh(mesh);
+  mesh.position = position;
+  mesh.rotation.y = yaw;
+  mesh.material = material;
+  mesh.convertToFlatShadedMesh();
 }
 
 function addFaceDetail(
@@ -266,12 +418,9 @@ function addTree(
 ): void {
   const scale = style.scale ?? 1;
   const yaw = style.yaw ?? 0;
-  const shape = style.shape ?? "round";
-  const shapeScale = {
-    round: { x: 1, y: 1, z: 1 },
-    tall: { x: 0.82, y: 1.22, z: 0.86 },
-    wide: { x: 1.24, y: 0.9, z: 1.12 },
-  }[shape];
+  const variant = style.variant ?? "broad";
+  const canopy = style.canopy ?? treePresets[variant];
+  const trunkLean = style.trunkLean ?? (variant === "bent" ? 0.34 : variant === "tall" ? 0.16 : 0.2);
 
   const shadow = MeshBuilder.CreateCylinder(`${name}-shadow`, { height: 0.018, diameter: 1.45 * scale, tessellation: 18 }, scene);
   shadow.position = position.add(new Vector3(0, 0.014, 0));
@@ -279,67 +428,82 @@ function addTree(
   shadow.rotation.y = yaw;
   shadow.material = materials.treeShadow;
 
-  const trunkBase = MeshBuilder.CreateCylinder(`${name}-trunk-base`, {
-    height: 0.62 * scale,
-    diameterBottom: 0.3 * scale,
-    diameterTop: 0.21 * scale,
-    tessellation: 8,
-  }, scene);
-  trunkBase.position = position.add(new Vector3(0, 0.32 * scale, 0));
-  trunkBase.rotation.z = 0.04 * Math.sin(yaw);
-  trunkBase.material = materials.treeTrunk;
+  const lean = new Vector3(
+    Math.cos(yaw + 0.35) * trunkLean * scale,
+    0,
+    Math.sin(yaw + 0.35) * trunkLean * scale,
+  );
+  const trunkStart = position.add(new Vector3(0, 0.06 * scale, 0));
+  const trunkMid = position.add(new Vector3(lean.x * 0.42, 0.72 * scale, lean.z * 0.42));
+  const trunkTop = position.add(new Vector3(lean.x, 1.08 * scale, lean.z));
 
-  const trunkUpper = MeshBuilder.CreateCylinder(`${name}-trunk-upper`, {
-    height: 0.42 * scale,
-    diameterBottom: 0.21 * scale,
-    diameterTop: 0.15 * scale,
-    tessellation: 8,
-  }, scene);
-  trunkUpper.position = position.add(new Vector3(0.04 * scale * Math.cos(yaw), 0.8 * scale, -0.04 * scale * Math.sin(yaw)));
-  trunkUpper.rotation.z = 0.08 * Math.cos(yaw);
-  trunkUpper.material = materials.treeTrunk;
+  addAngledCylinder(`${name}-trunk-base`, trunkStart, trunkMid, 0.34 * scale, 0.22 * scale, materials.treeBark, scene, 7);
+  addAngledCylinder(`${name}-trunk-upper`, trunkMid, trunkTop, 0.22 * scale, 0.14 * scale, materials.treeBark, scene, 7);
 
-  addDetailBox(`${name}-bark-highlight`, position, yaw, -0.065 * scale, 0.52 * scale, -0.13 * scale, 0.04 * scale, 0.52 * scale, 0.032 * scale, materials.treeBarkLight, scene);
+  addSimpleBox(
+    `${name}-bark-highlight`,
+    position.add(new Vector3(Math.cos(yaw + 2.2) * 0.12 * scale, 0.5 * scale, Math.sin(yaw + 2.2) * 0.12 * scale)),
+    0.04 * scale,
+    0.46 * scale,
+    0.028 * scale,
+    yaw + 0.18,
+    materials.treeBarkLight,
+    scene,
+    0.06,
+  );
 
   for (let index = 0; index < 4; index += 1) {
     const rootYaw = yaw + index * Math.PI * 0.5 + (index % 2 === 0 ? 0.18 : -0.12);
     const center = position.add(new Vector3(Math.cos(rootYaw) * 0.2 * scale, 0.08 * scale, Math.sin(rootYaw) * 0.2 * scale));
-    addSimpleBox(`${name}-root-${index}`, center, 0.48 * scale, 0.08 * scale, 0.13 * scale, rootYaw, materials.treeTrunk, scene, index % 2 === 0 ? 0.04 : -0.04);
+    addSimpleBox(`${name}-root-${index}`, center, 0.48 * scale, 0.08 * scale, 0.13 * scale, rootYaw, materials.treeBark, scene, index % 2 === 0 ? 0.04 : -0.04);
   }
 
-  for (let index = 0; index < 3; index += 1) {
-    const branchYaw = yaw + index * Math.PI * 0.68 + 0.28;
-    const branchY = (0.78 + index * 0.12) * scale;
-    const center = position.add(new Vector3(Math.cos(branchYaw) * 0.21 * scale, branchY, Math.sin(branchYaw) * 0.21 * scale));
-    addSimpleBox(`${name}-branch-${index}`, center, (0.5 - index * 0.05) * scale, 0.08 * scale, 0.1 * scale, branchYaw, materials.treeTrunk, scene, index % 2 === 0 ? 0.12 : -0.1);
+  for (let index = 0; index < 4; index += 1) {
+    const branchYaw = yaw + index * Math.PI * 0.5 + (index % 2 === 0 ? 0.28 : -0.18);
+    const branchBaseY = (0.7 + index * 0.1) * scale;
+    const branchStart = position.add(new Vector3(
+      lean.x * (0.35 + index * 0.1),
+      branchBaseY,
+      lean.z * (0.35 + index * 0.1),
+    ));
+    const branchEnd = branchStart.add(new Vector3(
+      Math.cos(branchYaw) * (0.48 - index * 0.04) * scale,
+      (0.16 + (index % 2) * 0.08) * scale,
+      Math.sin(branchYaw) * (0.48 - index * 0.04) * scale,
+    ));
+    addAngledCylinder(`${name}-branch-${index}`, branchStart, branchEnd, (0.12 - index * 0.012) * scale, (0.055 - index * 0.006) * scale, materials.treeBark, scene, 6);
   }
 
-  const leafClusters = [
-    { id: "center", x: 0, y: 1.26, z: 0, w: 1.2, h: 1.05, yawOffset: 0 },
-    { id: "front", x: 0.12, y: 1.12, z: -0.34, w: 0.96, h: 0.86, yawOffset: 0.62 },
-    { id: "back", x: -0.1, y: 1.18, z: 0.34, w: 0.98, h: 0.88, yawOffset: -0.48 },
-    { id: "left", x: -0.4, y: 1.16, z: 0.02, w: 0.92, h: 0.84, yawOffset: 1.18 },
-    { id: "right", x: 0.42, y: 1.2, z: 0.08, w: 0.9, h: 0.82, yawOffset: -1.05 },
-  ];
-
-  for (const cluster of leafClusters) {
-    const world = toHouseWorld(
+  canopy.forEach((lobe, index) => {
+    const world = toTreeWorld(
       position,
       yaw,
-      cluster.x * scale * shapeScale.x,
-      cluster.y * scale * shapeScale.y,
-      cluster.z * scale * shapeScale.z,
+      (lobe.x + lean.x * 0.35 / scale) * scale,
+      lobe.y * scale,
+      (lobe.z + lean.z * 0.35 / scale) * scale,
     );
-    addCrossCards(
-      `${name}-leaf-card-${cluster.id}`,
+    addLeafVolume(
+      `${name}-style-${variant}-leaf-volume-${lobe.id}`,
       world,
-      cluster.w * scale * shapeScale.x,
-      cluster.h * scale * shapeScale.y,
-      yaw + cluster.yawOffset,
-      materials.treeLeavesCard,
+      lobe.sx * scale,
+      lobe.sy * scale,
+      lobe.sz * scale,
+      yaw + index * 0.23,
+      materials.treeLeafMask,
       scene,
+      index + scale * 11,
     );
-  }
+    addVegetationCard(
+      `${name}-style-${variant}-leaf-shell-${lobe.id}`,
+      world.add(new Vector3(0, 0.02 * scale, 0)),
+      lobe.sx * scale * 0.72,
+      lobe.sy * scale * 0.82,
+      yaw + index * 0.64,
+      materials.treeLeafShell,
+      scene,
+      -0.08 + (index % 2) * 0.16,
+    );
+  });
 }
 
 const organicPatchTemplates: PatchPoint[][] = [
@@ -402,6 +566,10 @@ function terrainVisualHeightAt(x: number, z: number): number {
   if (roadNorth || roadEast || roadSouthWest) value = Math.min(value, 72);
   const shade = clamp(value, 20, 180);
   return -0.12 + (shade / 255) * 1.02;
+}
+
+function terrainPosition(x: number, z: number): Vector3 {
+  return new Vector3(x, terrainVisualHeightAt(x, z), z);
 }
 
 function roadJitter(index: number, side: number): number {
@@ -654,12 +822,12 @@ export function createDioramaMap(scene: Scene, materials: CartoonMaterials): Dio
     ],
   }, obstacles, scene, materials);
 
-  addTree("tree-north-west", new Vector3(-4.8, 0, 2.7), scene, materials, { scale: 1.05, yaw: 0.35, shape: "wide" });
-  addTree("tree-south-east", new Vector3(6.55, 0, -2.1), scene, materials, { scale: 0.95, yaw: -0.6, shape: "round" });
-  addTree("tree-village-grove-a", new Vector3(2.4, 0, -3.95), scene, materials, { scale: 0.82, yaw: 1.25, shape: "tall" });
-  addTree("tree-village-grove-b", new Vector3(7.4, 0, 4.9), scene, materials, { scale: 1.1, yaw: -1.05, shape: "round" });
-  addTree("tree-west-meadow", new Vector3(-8.35, 0, 0.85), scene, materials, { scale: 0.88, yaw: 2.1, shape: "tall" });
-  addTree("tree-south-meadow", new Vector3(-1.7, 0, -6.4), scene, materials, { scale: 1.18, yaw: 0.75, shape: "wide" });
+  addTree("tree-north-west", terrainPosition(-4.8, 2.7), scene, materials, { scale: 1.05, yaw: 0.35, variant: "broad" });
+  addTree("tree-south-east", terrainPosition(6.55, -2.1), scene, materials, { scale: 0.95, yaw: -0.6, variant: "bent" });
+  addTree("tree-village-grove-a", terrainPosition(2.4, -3.95), scene, materials, { scale: 0.82, yaw: 1.25, variant: "tall" });
+  addTree("tree-village-grove-b", terrainPosition(7.4, 4.9), scene, materials, { scale: 1.1, yaw: -1.05, variant: "broad" });
+  addTree("tree-west-meadow", terrainPosition(-8.35, 0.85), scene, materials, { scale: 0.88, yaw: 2.1, variant: "tall" });
+  addTree("tree-south-meadow", terrainPosition(-1.7, -6.4), scene, materials, { scale: 1.18, yaw: 0.75, variant: "bent" });
   addGroundVegetation(scene, materials);
 
   addFenceSegment("fence-north-a", new Vector3(-2.35, 0.18, 2.42), 0.9, 0, scene, materials);
