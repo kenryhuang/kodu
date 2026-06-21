@@ -153,6 +153,9 @@ export function createMaterials(scene: Scene) {
     treeTop: make("mat-tree-top", new Color3(0.25, 0.58, 0.3)),
     treeTopDark: make("mat-tree-top-dark", new Color3(0.16, 0.42, 0.22)),
     treeTopLight: make("mat-tree-top-light", new Color3(0.47, 0.72, 0.34)),
+    treeLeavesCard: makeImageTextured("mat-tree-leaves-card", "/assets/vegetation/tree-leaves.png", new Color3(0.28, 0.62, 0.3), 1, 1, true),
+    bushCard: makeImageTextured("mat-bush-card", "/assets/vegetation/bush.png", new Color3(0.32, 0.62, 0.3), 1, 1, true),
+    grassCard: makeImageTextured("mat-grass-card", "/assets/vegetation/grass-card.png", new Color3(0.48, 0.72, 0.34), 1, 1, true),
     treeShadow: makeTransparent("mat-tree-shadow", new Color3(0.12, 0.2, 0.12), 0.26),
   };
 }
