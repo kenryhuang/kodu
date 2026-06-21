@@ -280,6 +280,21 @@ async function readCameraSnapshot(page: Page): Promise<CameraSnapshot> {
   });
 }
 
+test("terrain image assets are served", async ({ page }) => {
+  await page.goto("/");
+  for (const asset of [
+    "/assets/terrain/heightmap-valley.png",
+    "/assets/terrain/grass.png",
+    "/assets/terrain/sand.png",
+    "/assets/terrain/road.png",
+  ]) {
+    const response = await page.request.get(asset);
+    expect(response.ok()).toBe(true);
+    expect(response.headers()["content-type"]).toContain("image/png");
+    expect((await response.body()).byteLength).toBeGreaterThan(500);
+  }
+});
+
 test("renders the game and fires a projectile", async ({ page }) => {
   const pageErrors: string[] = [];
   const consoleErrors: string[] = [];
