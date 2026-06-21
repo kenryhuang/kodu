@@ -93,6 +93,31 @@ function speckle(x, y, seed, threshold) {
   return hash(x, y, seed) > threshold;
 }
 
+function edgeAlpha(x, y, width, height, feather) {
+  const distance = Math.min(x, y, width - 1 - x, height - 1 - y);
+  return Math.round(clamp(smooth(clamp(distance / feather, 0, 1)) * 255, 0, 255));
+}
+
+function grassBladeAmount(x, y) {
+  const cellSize = 6;
+  const cellX = Math.floor(x / cellSize);
+  const cellY = Math.floor(y / cellSize);
+  const localX = x - cellX * cellSize;
+  const localY = y - cellY * cellSize;
+  const density = hash(cellX, cellY, 71);
+  if (density < 0.56) return 0;
+
+  const anchorX = Math.floor(hash(cellX, cellY, 72) * cellSize);
+  const anchorY = Math.floor(hash(cellX, cellY, 73) * cellSize);
+  const length = 2 + Math.floor(hash(cellX, cellY, 74) * 4);
+  const lean = hash(cellX, cellY, 75) > 0.5 ? 0.35 : -0.35;
+  const dy = localY - anchorY;
+  if (dy < 0 || dy > length) return 0;
+  const bladeX = anchorX + dy * lean;
+  const distance = Math.abs(localX - bladeX);
+  return distance < 0.65 ? 1 - distance / 0.65 : 0;
+}
+
 writePng("heightmap-valley.png", 128, 128, (x, y, width, height) => {
   const nx = (x / (width - 1)) * 2 - 1;
   const nz = (y / (height - 1)) * 2 - 1;
@@ -106,20 +131,22 @@ writePng("heightmap-valley.png", 128, 128, (x, y, width, height) => {
   return [shade, shade, shade, 255];
 });
 
-writePng("grass.png", 128, 128, (x, y, width, height) => {
+writePng("grass.png", 256, 256, (x, y, width, height) => {
   const broad = fbm(x, y, 3, width, height);
-  const clump = tileNoise(x, y, 16, 12, width, height);
-  const detail = tileNoise(x, y, 4, 18, width, height);
-  let color = mixColor([63, 126, 55], [111, 169, 78], broad);
-  if (clump > 0.62) color = mixColor(color, [43, 105, 50], (clump - 0.62) * 1.8);
-  if (detail > 0.76) color = mixColor(color, [139, 190, 91], 0.35);
-  const bladeBand = Math.abs(((x * 0.7 + y * 1.35 + tileNoise(x, y, 8, 28, width, height) * 9) % 19) - 9.5);
-  if (bladeBand < 0.42 && speckle(Math.floor(x / 2), Math.floor(y / 2), 31, 0.53)) color = shade(color, 24);
-  if (speckle(x, y, 41, 0.965)) color = shade(color, -28);
+  const meadow = tileNoise(x, y, 64, 12, width, height);
+  const clump = tileNoise(x, y, 24, 18, width, height);
+  const detail = tileNoise(x, y, 6, 28, width, height);
+  let color = mixColor([58, 123, 55], [116, 170, 79], broad * 0.72 + meadow * 0.28);
+  if (clump > 0.58) color = mixColor(color, [43, 105, 50], (clump - 0.58) * 1.15);
+  if (detail > 0.7) color = mixColor(color, [138, 188, 94], 0.22);
+  const blade = grassBladeAmount(x, y);
+  if (blade > 0) color = mixColor(color, hash(x, y, 76) > 0.5 ? [142, 194, 99] : [38, 97, 47], blade * 0.45);
+  if (speckle(x, y, 41, 0.975)) color = shade(color, -22);
+  if (speckle(x, y, 42, 0.982)) color = shade(color, 18);
   return [...color, 255];
 });
 
-writePng("sand.png", 128, 128, (x, y, width, height) => {
+writePng("sand.png", 256, 256, (x, y, width, height) => {
   const broad = fbm(x, y, 7, width, height);
   const ripples = Math.sin((x * 0.17 + y * 0.08 + tileNoise(x, y, 16, 16, width, height) * 2.4) * Math.PI);
   let color = mixColor([172, 133, 77], [226, 188, 111], broad);
@@ -128,10 +155,10 @@ writePng("sand.png", 128, 128, (x, y, width, height) => {
     && tileNoise(x, y, 16, 25, width, height) > 0.58;
   if (crack) color = mixColor(color, [116, 83, 52], 0.38);
   if (speckle(x, y, 53, 0.93)) color = shade(color, hash(x, y, 54) > 0.5 ? 22 : -24);
-  return [...color, 255];
+  return [...color, edgeAlpha(x, y, width, height, 24)];
 });
 
-writePng("road.png", 128, 128, (x, y, width, height) => {
+writePng("road.png", 256, 256, (x, y, width, height) => {
   const across = Math.abs(x / (width - 1) - 0.5) * 2;
   const centerWear = Math.max(0, 1 - across);
   const mud = fbm(x, y, 11, width, height);
@@ -141,5 +168,6 @@ writePng("road.png", 128, 128, (x, y, width, height) => {
   const rut = Math.abs(x - width * 0.33) < 2.3 || Math.abs(x - width * 0.67) < 2.3;
   if (rut && tileNoise(x, y, 8, 43, width, height) > 0.42) color = mixColor(color, [73, 51, 34], 0.34);
   if (speckle(x, y, 61, 0.94)) color = shade(color, hash(x, y, 62) > 0.48 ? 25 : -28);
-  return [...color, 255];
+  const sideFade = smooth(clamp((1 - across) / 0.2, 0, 1));
+  return [...color, Math.min(edgeAlpha(x, y, width, height, 18), Math.round(sideFade * 255))];
 });

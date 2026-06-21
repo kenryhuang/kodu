@@ -25,6 +25,8 @@ type VillageSnapshot = {
   terrainRectangularLayers: number;
   terrainPatchMinVertices: number;
   terrainTextureMaterials: number;
+  terrainAlphaBlendMaterials: number;
+  terrainRepeatedAlphaMaterials: number;
   treeTrunkBases: number;
   treeRoots: number;
   treeBranches: number;
@@ -147,7 +149,10 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
       __KODU_APP__?: {
         gameScene?: {
           scene?: {
-            materials: Array<{ name: string }>;
+            materials: Array<{
+              name: string;
+              useAlphaFromDiffuseTexture?: boolean;
+            }>;
             meshes: Array<{
               name: string;
               getTotalVertices(): number;
@@ -174,6 +179,20 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
     if (!scene || !map) throw new Error("Missing game scene or map");
     const names = scene.meshes.map((mesh) => mesh.name);
     const materialNames = scene.materials.map((material) => material.name);
+    const blendedTerrainMaterials = scene.materials.filter((material) => (
+      material.name === "mat-terrain-sand"
+      || material.name === "mat-terrain-road"
+      || material.name === "mat-path-dirt"
+    ) && material.useAlphaFromDiffuseTexture);
+    const repeatedAlphaMaterials = blendedTerrainMaterials.filter((material) => {
+      const texture = (material as unknown as {
+        diffuseTexture?: {
+          uScale?: number;
+          vScale?: number;
+        };
+      }).diffuseTexture;
+      return (texture?.uScale ?? 1) > 1 || (texture?.vScale ?? 1) > 1;
+    });
     const terrainPatchVertexCounts = scene.meshes
       .filter((mesh) => mesh.name.startsWith("terrain-patch-"))
       .map((mesh) => mesh.getTotalVertices());
@@ -198,6 +217,8 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
       terrainRectangularLayers: names.filter((name) => name.startsWith("terrain-sand-") || name.startsWith("terrain-road-")).length,
       terrainPatchMinVertices: terrainPatchVertexCounts.length ? Math.min(...terrainPatchVertexCounts) : 0,
       terrainTextureMaterials: materialNames.filter((name) => name.startsWith("mat-terrain-")).length,
+      terrainAlphaBlendMaterials: blendedTerrainMaterials.length,
+      terrainRepeatedAlphaMaterials: repeatedAlphaMaterials.length,
       treeTrunkBases: names.filter((name) => name.startsWith("tree-") && name.endsWith("-trunk-base")).length,
       treeRoots: names.filter((name) => name.startsWith("tree-") && name.includes("-root-")).length,
       treeBranches: names.filter((name) => name.startsWith("tree-") && name.includes("-branch-")).length,
@@ -321,6 +342,25 @@ async function readCameraSnapshot(page: Page): Promise<CameraSnapshot> {
   });
 }
 
+async function waitForCameraReady(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const app = (globalThis as typeof globalThis & {
+      __KODU_APP__?: {
+        gameScene?: {
+          scene?: {
+            activeCamera?: {
+              getTarget(): { y: number };
+              position: { y: number };
+            };
+          };
+        };
+      };
+    }).__KODU_APP__;
+    const camera = app?.gameScene?.scene?.activeCamera;
+    return Boolean(camera && Math.abs(camera.position.y - (camera.getTarget().y + 8.4)) < 0.03);
+  });
+}
+
 test("terrain image assets are served", async ({ page }) => {
   await page.goto("/");
   const assets = [
@@ -348,8 +388,8 @@ test("terrain image assets are served", async ({ page }) => {
   }))), assets);
 
   for (const image of dimensions.filter(({ asset }) => asset !== "/assets/terrain/heightmap-valley.png")) {
-    expect(image.width, `${image.asset} width`).toBeGreaterThanOrEqual(128);
-    expect(image.height, `${image.asset} height`).toBeGreaterThanOrEqual(128);
+    expect(image.width, `${image.asset} width`).toBeGreaterThanOrEqual(256);
+    expect(image.height, `${image.asset} height`).toBeGreaterThanOrEqual(256);
   }
 });
 
@@ -399,18 +439,12 @@ test("space jumps without firing a projectile", async ({ page }) => {
 
   await page.goto("/");
   await expect(page.locator("#game-canvas")).toBeVisible();
+  await waitForCameraReady(page);
 
   const before = await readPlayerSnapshot(page);
   expect(await readProjectileCount(page)).toBe(0);
 
-  await page.evaluate(() => {
-    window.dispatchEvent(new KeyboardEvent("keydown", {
-      bubbles: true,
-      cancelable: true,
-      code: "Space",
-      key: " ",
-    }));
-  });
+  await page.keyboard.down("Space");
   let after: { grounded: boolean; y: number } | undefined;
   try {
     const jumpSample = await page.waitForFunction((startY) => {
@@ -433,13 +467,7 @@ test("space jumps without firing a projectile", async ({ page }) => {
     }, before.y);
     after = await jumpSample.jsonValue() as { grounded: boolean; y: number };
   } finally {
-    await page.evaluate(() => {
-      window.dispatchEvent(new KeyboardEvent("keyup", {
-        bubbles: true,
-        code: "Space",
-        key: " ",
-      }));
-    });
+    await page.keyboard.up("Space");
   }
 
   if (!after) throw new Error("Missing jump sample");
@@ -459,34 +487,12 @@ test("space jumps without firing a projectile", async ({ page }) => {
 test("camera ignores player jump height", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#game-canvas")).toBeVisible();
-  await page.waitForFunction(() => {
-    const app = (globalThis as typeof globalThis & {
-      __KODU_APP__?: {
-        gameScene?: {
-          scene?: {
-            activeCamera?: {
-              getTarget(): { y: number };
-              position: { y: number };
-            };
-          };
-        };
-      };
-    }).__KODU_APP__;
-    const camera = app?.gameScene?.scene?.activeCamera;
-    return Boolean(camera && Math.abs(camera.position.y - (camera.getTarget().y + 8.4)) < 0.03);
-  });
+  await waitForCameraReady(page);
 
   const before = await readCameraSnapshot(page);
   const playerBefore = await readPlayerSnapshot(page);
 
-  await page.evaluate(() => {
-    window.dispatchEvent(new KeyboardEvent("keydown", {
-      bubbles: true,
-      cancelable: true,
-      code: "Space",
-      key: " ",
-    }));
-  });
+  await page.keyboard.down("Space");
 
   let during: CameraSnapshot & { playerY: number } | undefined;
   try {
@@ -526,13 +532,7 @@ test("camera ignores player jump height", async ({ page }) => {
     }, playerBefore.y);
     during = await jumpSample.jsonValue() as CameraSnapshot & { playerY: number };
   } finally {
-    await page.evaluate(() => {
-      window.dispatchEvent(new KeyboardEvent("keyup", {
-        bubbles: true,
-        code: "Space",
-        key: " ",
-      }));
-    });
+    await page.keyboard.up("Space");
   }
 
   if (!during) throw new Error("Missing camera jump sample");
@@ -552,6 +552,8 @@ test("renders village houses as tall blocking obstacles", async ({ page }) => {
   expect(village.terrainRectangularLayers).toBe(0);
   expect(village.terrainPatchMinVertices).toBeGreaterThanOrEqual(9);
   expect(village.terrainTextureMaterials).toBeGreaterThanOrEqual(3);
+  expect(village.terrainAlphaBlendMaterials).toBeGreaterThanOrEqual(3);
+  expect(village.terrainRepeatedAlphaMaterials).toBe(0);
   expect(village.treeTrunkBases).toBeGreaterThanOrEqual(5);
   expect(village.treeRoots).toBeGreaterThanOrEqual(15);
   expect(village.treeBranches).toBeGreaterThanOrEqual(10);

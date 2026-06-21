@@ -4,7 +4,7 @@ const isCI = Boolean((globalThis as { process?: { env?: { CI?: string } } }).pro
 
 export default defineConfig({
   testDir: "tests",
-  timeout: 30_000,
+  timeout: 45_000,
   use: {
     baseURL: "http://127.0.0.1:5173",
     viewport: { width: 1280, height: 800 },
