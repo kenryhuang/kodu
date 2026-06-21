@@ -67,6 +67,51 @@ export function createMaterials(scene: Scene) {
     return material;
   };
 
+  const makeNearestImageTextured = (
+    name: string,
+    url: string,
+    fallbackColor: Color3,
+    tileScale = 1,
+  ): StandardMaterial => {
+    const material = make(name, fallbackColor);
+    const texture = new Texture(url, scene, {
+      invertY: false,
+      samplingMode: Texture.NEAREST_SAMPLINGMODE,
+    });
+    texture.uScale = tileScale;
+    texture.vScale = tileScale;
+    texture.wrapU = Texture.WRAP_ADDRESSMODE;
+    texture.wrapV = Texture.WRAP_ADDRESSMODE;
+    material.diffuseTexture = texture;
+    material.diffuseColor = new Color3(1, 1, 1);
+    material.specularColor = new Color3(0, 0, 0);
+    return material;
+  };
+
+  const makeAlphaTestTextured = (
+    name: string,
+    url: string,
+    fallbackColor: Color3,
+    cutoff = 0.48,
+  ): StandardMaterial => {
+    const material = make(name, fallbackColor);
+    const texture = new Texture(url, scene, {
+      invertY: false,
+      samplingMode: Texture.NEAREST_SAMPLINGMODE,
+    });
+    texture.wrapU = Texture.CLAMP_ADDRESSMODE;
+    texture.wrapV = Texture.CLAMP_ADDRESSMODE;
+    texture.hasAlpha = true;
+    material.diffuseTexture = texture;
+    material.diffuseColor = new Color3(1, 1, 1);
+    material.backFaceCulling = false;
+    material.useAlphaFromDiffuseTexture = true;
+    material.transparencyMode = Material.MATERIAL_ALPHATEST;
+    material.alphaCutOff = cutoff;
+    material.specularColor = new Color3(0, 0, 0);
+    return material;
+  };
+
   const makeHouseWall = (name: string, base: string, line: string): StandardMaterial => makeTextured(
     name,
     Color3.FromHexString(base),
@@ -149,10 +194,13 @@ export function createMaterials(scene: Scene) {
     fenceWood: make("mat-fence-wood", new Color3(0.57, 0.38, 0.21)),
     pathDirt: makeImageTextured("mat-path-dirt", "/assets/terrain/road.png", new Color3(0.55, 0.4, 0.25), 1, 1, true),
     treeTrunk: make("mat-tree-trunk", new Color3(0.48, 0.3, 0.18)),
+    treeBark: makeNearestImageTextured("mat-tree-bark", "/assets/vegetation/tree-bark.png", new Color3(0.5, 0.29, 0.15), 1),
     treeBarkLight: make("mat-tree-bark-light", new Color3(0.68, 0.45, 0.25)),
     treeTop: make("mat-tree-top", new Color3(0.25, 0.58, 0.3)),
     treeTopDark: make("mat-tree-top-dark", new Color3(0.16, 0.42, 0.22)),
     treeTopLight: make("mat-tree-top-light", new Color3(0.47, 0.72, 0.34)),
+    treeLeafMask: makeAlphaTestTextured("mat-tree-leaf-mask", "/assets/vegetation/tree-leaves.png", new Color3(0.25, 0.58, 0.3), 0.46),
+    treeLeafShell: makeAlphaTestTextured("mat-tree-leaf-shell", "/assets/vegetation/tree-leaf-shell.png", new Color3(0.3, 0.62, 0.34), 0.5),
     treeLeavesCard: makeImageTextured("mat-tree-leaves-card", "/assets/vegetation/tree-leaves.png", new Color3(0.28, 0.62, 0.3), 1, 1, true),
     bushCard: makeImageTextured("mat-bush-card", "/assets/vegetation/bush.png", new Color3(0.32, 0.62, 0.3), 1, 1, true),
     grassCard: makeImageTextured("mat-grass-card", "/assets/vegetation/grass-card.png", new Color3(0.48, 0.72, 0.34), 1, 1, true),
