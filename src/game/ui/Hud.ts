@@ -13,7 +13,7 @@ export class Hud {
         <div class="hud-row"><span>NPCs</span><strong data-hud="npcs">0</strong></div>
         <div class="hud-row"><span>Projectiles</span><strong data-hud="projectiles">0</strong></div>
       </section>
-      <section class="hud-help">Move WASD / Arrows · Fire Click / Space · Inspector I</section>
+      <section class="hud-help">Move WASD / Arrows · Jump Space · Fire Click · Inspector I</section>
     `;
   }
 

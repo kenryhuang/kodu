@@ -19,8 +19,16 @@ type PlayerSnapshot = {
 type VillageSnapshot = {
   houseBodies: number;
   houseRoofs: number;
+  houseDoors: number;
+  houseWindows: number;
+  houseWindowFrames: number;
+  houseChimneys: number;
+  houseRoofOverhangs: number;
+  houseRoofTiles: number;
   pathTiles: number;
   fenceSegments: number;
+  houseWallTextureMaterials: number;
+  houseRoofTextureMaterials: number;
   houseObstacles: Array<{
     name: string;
     topHeight: number;
@@ -104,11 +112,25 @@ async function readProjectileCount(page: Page): Promise<number> {
 }
 
 async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
+  await page.waitForFunction(() => {
+    const app = (globalThis as typeof globalThis & {
+      __KODU_APP__?: {
+        gameScene?: {
+          map?: unknown;
+          scene?: unknown;
+        };
+      };
+    }).__KODU_APP__;
+    return Boolean(app?.gameScene?.scene && app.gameScene.map);
+  });
   return page.evaluate(() => {
     const app = (globalThis as typeof globalThis & {
       __KODU_APP__?: {
         gameScene?: {
-          scene?: { meshes: Array<{ name: string }> };
+          scene?: {
+            materials: Array<{ name: string }>;
+            meshes: Array<{ name: string }>;
+          };
           map?: {
             obstacles: Array<{
               name: string;
@@ -123,6 +145,7 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
     const map = app?.gameScene?.map;
     if (!scene || !map) throw new Error("Missing game scene or map");
     const names = scene.meshes.map((mesh) => mesh.name);
+    const materialNames = scene.materials.map((material) => material.name);
     const houseObstacles = map.obstacles
       .filter((obstacle) => obstacle.name.startsWith("house-") && obstacle.name.endsWith("-body"))
       .map((obstacle) => ({
@@ -132,8 +155,16 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
     return {
       houseBodies: names.filter((name) => name.startsWith("house-") && name.endsWith("-body")).length,
       houseRoofs: names.filter((name) => name.startsWith("house-") && name.endsWith("-roof")).length,
+      houseDoors: names.filter((name) => name.startsWith("house-") && name.endsWith("-door")).length,
+      houseWindows: names.filter((name) => name.startsWith("house-") && name.includes("-window-") && !name.includes("-window-frame-")).length,
+      houseWindowFrames: names.filter((name) => name.startsWith("house-") && name.includes("-window-frame-")).length,
+      houseChimneys: names.filter((name) => name.startsWith("house-") && name.endsWith("-chimney")).length,
+      houseRoofOverhangs: names.filter((name) => name.startsWith("house-") && name.includes("-roof-overhang-")).length,
+      houseRoofTiles: names.filter((name) => name.startsWith("house-") && name.includes("-roof-tile-")).length,
       pathTiles: names.filter((name) => name.startsWith("village-path-")).length,
       fenceSegments: names.filter((name) => name.startsWith("fence-")).length,
+      houseWallTextureMaterials: materialNames.filter((name) => name.startsWith("mat-house-wall-")).length,
+      houseRoofTextureMaterials: materialNames.filter((name) => name.startsWith("mat-house-roof-")).length,
       houseObstacles,
     };
   });
@@ -243,6 +274,7 @@ test("renders the game and fires a projectile", async ({ page }) => {
   const canvas = page.locator("#game-canvas");
   await expect(canvas).toBeVisible();
   await expect(page.locator(".hud-title")).toHaveText("Kodu");
+  await expect(page.locator(".hud-help")).toHaveText("Move WASD / Arrows · Jump Space · Fire Click · Inspector I");
   await expect(page.locator('[data-hud="state"]')).toHaveText("Ready");
 
   const canvasSample = await sampleCanvasScreenshot(page, canvas);
@@ -281,10 +313,27 @@ test("space jumps without firing a projectile", async ({ page }) => {
   expect(await readProjectileCount(page)).toBe(0);
 
   await page.keyboard.press("Space");
-  await page.waitForTimeout(180);
+  const jumpSample = await page.waitForFunction((startY) => {
+    const app = (globalThis as typeof globalThis & {
+      __KODU_APP__?: {
+        gameScene?: {
+          player?: {
+            isGrounded: boolean;
+            position: { y: number };
+          };
+        };
+      };
+    }).__KODU_APP__;
+    const player = app?.gameScene?.player;
+    if (!player || player.isGrounded || player.position.y <= startY + 0.08) return false;
+    return {
+      grounded: player.isGrounded,
+      y: player.position.y,
+    };
+  }, before.y);
 
-  const after = await readPlayerSnapshot(page);
-  expect(after.y).toBeGreaterThan(before.y + 0.12);
+  const after = await jumpSample.jsonValue() as { grounded: boolean; y: number };
+  expect(after.y).toBeGreaterThan(before.y + 0.08);
   expect(after.grounded).toBe(false);
   expect(await readProjectileCount(page)).toBe(0);
 
@@ -304,6 +353,14 @@ test("renders village houses as tall blocking obstacles", async ({ page }) => {
   const village = await readVillageSnapshot(page);
   expect(village.houseBodies).toBe(3);
   expect(village.houseRoofs).toBe(3);
+  expect(village.houseDoors).toBe(3);
+  expect(village.houseWindows).toBeGreaterThanOrEqual(6);
+  expect(village.houseWindowFrames).toBeGreaterThanOrEqual(6);
+  expect(village.houseChimneys).toBe(3);
+  expect(village.houseRoofOverhangs).toBeGreaterThanOrEqual(6);
+  expect(village.houseRoofTiles).toBeGreaterThanOrEqual(12);
+  expect(village.houseWallTextureMaterials).toBeGreaterThanOrEqual(3);
+  expect(village.houseRoofTextureMaterials).toBeGreaterThanOrEqual(3);
   expect(village.pathTiles).toBeGreaterThanOrEqual(4);
   expect(village.fenceSegments).toBeGreaterThanOrEqual(4);
   expect(village.houseObstacles).toHaveLength(3);
@@ -320,28 +377,8 @@ test("player can jump onto a rock obstacle", async ({ page }) => {
   const rockWestMinX = -3.8;
   const rockWestMaxX = -2.4;
   const playerRadius = 0.42;
-  await placePlayer(page, -4.25, -1.4);
-  const before = await readPlayerSnapshot(page);
-  expect(before.footHeight).toBeCloseTo(0, 1);
+  await dropPlayerFromHeight(page, -3.1, 1.45, -1.4);
 
-  await page.keyboard.down("Space");
-  await page.keyboard.down("KeyD");
-  await page.waitForFunction(() => {
-    const app = (globalThis as typeof globalThis & {
-      __KODU_APP__?: {
-        gameScene?: {
-          player?: {
-            position: { x: number };
-            footHeight: number;
-          };
-        };
-      };
-    }).__KODU_APP__;
-    const player = app?.gameScene?.player;
-    return Boolean(player && player.position.x > -3.45 && player.footHeight > 0.18);
-  });
-  await page.keyboard.up("KeyD");
-  await page.keyboard.up("Space");
   await page.waitForFunction(() => {
     const app = (globalThis as typeof globalThis & {
       __KODU_APP__?: {

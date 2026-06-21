@@ -1,5 +1,7 @@
 import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import { DynamicTexture } from "@babylonjs/core/Materials/Textures/dynamicTexture";
+import { Texture } from "@babylonjs/core/Materials/Textures/texture";
 import type { Scene } from "@babylonjs/core/scene";
 
 export type CartoonMaterials = ReturnType<typeof createMaterials>;
@@ -13,6 +15,81 @@ export function createMaterials(scene: Scene) {
     return material;
   };
 
+  const makeTextured = (
+    name: string,
+    fallbackColor: Color3,
+    paint: (context: CanvasRenderingContext2D) => void,
+  ): StandardMaterial => {
+    const material = make(name, fallbackColor);
+    const texture = new DynamicTexture(`${name}-texture`, { width: 128, height: 128 }, scene, false, Texture.NEAREST_SAMPLINGMODE);
+    const context = texture.getContext() as CanvasRenderingContext2D;
+    paint(context);
+    texture.update(false);
+    material.diffuseTexture = texture;
+    material.diffuseColor = new Color3(1, 1, 1);
+    return material;
+  };
+
+  const makeHouseWall = (name: string, base: string, line: string): StandardMaterial => makeTextured(
+    name,
+    Color3.FromHexString(base),
+    (context) => {
+      context.fillStyle = base;
+      context.fillRect(0, 0, 128, 128);
+      context.strokeStyle = line;
+      context.lineWidth = 3;
+      for (let y = 18; y < 128; y += 26) {
+        context.beginPath();
+        context.moveTo(0, y);
+        context.lineTo(128, y + (y % 3) * 2);
+        context.stroke();
+      }
+      context.strokeStyle = "rgba(255,255,255,0.26)";
+      context.lineWidth = 2;
+      for (let x = 12; x < 128; x += 34) {
+        context.beginPath();
+        context.moveTo(x, 0);
+        context.lineTo(x + 8, 128);
+        context.stroke();
+      }
+    },
+  );
+
+  const makeHouseRoof = (name: string, base: string, line: string): StandardMaterial => makeTextured(
+    name,
+    Color3.FromHexString(base),
+    (context) => {
+      context.fillStyle = base;
+      context.fillRect(0, 0, 128, 128);
+      context.strokeStyle = line;
+      context.lineWidth = 4;
+      for (let y = 12; y < 128; y += 18) {
+        context.beginPath();
+        context.moveTo(0, y);
+        context.lineTo(128, y);
+        context.stroke();
+      }
+      context.strokeStyle = "rgba(255,255,255,0.18)";
+      context.lineWidth = 2;
+      for (let y = 20; y < 128; y += 36) {
+        for (let x = -12; x < 128; x += 28) {
+          context.strokeRect(x + (y % 3) * 4, y - 8, 18, 12);
+        }
+      }
+    },
+  );
+
+  const houseWallVariants = [
+    makeHouseWall("mat-house-wall-cream", "#dcb98a", "#c99862"),
+    makeHouseWall("mat-house-wall-mint", "#9ccf9a", "#6fae75"),
+    makeHouseWall("mat-house-wall-clay", "#d98b68", "#a95c44"),
+  ];
+  const houseRoofVariants = [
+    makeHouseRoof("mat-house-roof-red", "#b7432f", "#7a241a"),
+    makeHouseRoof("mat-house-roof-teal", "#2f7c83", "#1f4d54"),
+    makeHouseRoof("mat-house-roof-violet", "#69538f", "#3e3158"),
+  ];
+
   return {
     grass: make("mat-grass", new Color3(0.42, 0.72, 0.36)),
     edge: make("mat-edge", new Color3(0.34, 0.52, 0.29)),
@@ -20,8 +97,15 @@ export function createMaterials(scene: Scene) {
     npc: make("mat-npc", new Color3(0.9, 0.26, 0.18)),
     projectile: make("mat-projectile", new Color3(1.0, 0.85, 0.25)),
     stone: make("mat-stone", new Color3(0.56, 0.62, 0.6)),
-    houseWall: make("mat-house-wall", new Color3(0.86, 0.72, 0.54)),
-    houseRoof: make("mat-house-roof", new Color3(0.68, 0.23, 0.16)),
+    houseWall: houseWallVariants[0],
+    houseRoof: houseRoofVariants[0],
+    houseWallVariants,
+    houseRoofVariants,
+    houseTrim: make("mat-house-trim", new Color3(0.94, 0.84, 0.68)),
+    houseDoor: make("mat-house-door", new Color3(0.45, 0.25, 0.14)),
+    houseWindow: make("mat-house-window", new Color3(0.48, 0.78, 0.92)),
+    houseChimney: make("mat-house-chimney", new Color3(0.5, 0.26, 0.2)),
+    houseRoofRidge: make("mat-house-roof-ridge", new Color3(0.32, 0.18, 0.16)),
     fenceWood: make("mat-fence-wood", new Color3(0.57, 0.38, 0.21)),
     pathDirt: make("mat-path-dirt", new Color3(0.55, 0.4, 0.25)),
     treeTrunk: make("mat-tree-trunk", new Color3(0.48, 0.3, 0.18)),
