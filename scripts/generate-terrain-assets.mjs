@@ -186,21 +186,50 @@ writePng(terrainOutDir, "road.png", 256, 256, (x, y, width, height) => {
 
 writePng(vegetationOutDir, "tree-leaves.png", 256, 256, (x, y, width, height) => {
   const clusters = [
-    [86, 102, 55, 42],
-    [132, 82, 64, 48],
-    [166, 124, 62, 50],
-    [108, 152, 70, 54],
-    [146, 166, 58, 44],
+    [72, 104, 62, 46],
+    [118, 78, 72, 54],
+    [172, 104, 66, 48],
+    [92, 152, 74, 56],
+    [152, 158, 72, 54],
+    [128, 124, 92, 66],
   ];
   let mask = 0;
   for (const [cx, cy, rx, ry] of clusters) {
     mask = Math.max(mask, ellipseMask(x, y, cx, cy, rx, ry));
   }
   const noise = fbm(x, y, 81, width, height);
-  let color = mixColor([35, 103, 48], [104, 164, 70], noise);
-  if (hash(x, y, 82) > 0.965) color = shade(color, 28);
-  if (hash(x, y, 83) > 0.955) color = shade(color, -24);
-  return [...color, softShapeAlpha(mask)];
+  let color = mixColor([30, 90, 42], [102, 156, 66], noise);
+  if (hash(x, y, 82) > 0.94) color = shade(color, 22);
+  if (hash(x, y, 83) > 0.94) color = shade(color, -22);
+  const cut = softShapeAlpha(mask);
+  return [...color, cut > 70 ? 255 : 0];
+});
+
+writePng(vegetationOutDir, "tree-leaf-shell.png", 256, 256, (x, y, width, height) => {
+  const clusters = [
+    [64, 132, 54, 46],
+    [116, 96, 70, 56],
+    [174, 124, 58, 52],
+    [138, 170, 78, 46],
+  ];
+  let mask = 0;
+  for (const [cx, cy, rx, ry] of clusters) {
+    mask = Math.max(mask, ellipseMask(x, y, cx, cy, rx, ry));
+  }
+  const color = mixColor([28, 84, 42], [118, 166, 76], fbm(x, y, 121, width, height));
+  const interior = mask > 0.18 ? 255 : 0;
+  const holes = hash(Math.floor(x / 7), Math.floor(y / 7), 122) > 0.86 && mask > 0.35 ? 0 : interior;
+  return [...color, holes];
+});
+
+writePng(vegetationOutDir, "tree-bark.png", 256, 256, (x, y, width, height) => {
+  const vertical = Math.sin((x * 0.14 + tileNoise(x, y, 18, 131, width, height) * 2.4) * Math.PI);
+  const knots = tileNoise(x, y, 26, 132, width, height);
+  let color = mixColor([86, 48, 25], [151, 91, 45], fbm(x, y, 133, width, height));
+  color = shade(color, Math.round(vertical * 15));
+  if (knots > 0.73) color = mixColor(color, [50, 28, 17], 0.48);
+  if (hash(x, y, 134) > 0.965) color = shade(color, 24);
+  return [...color, 255];
 });
 
 writePng(vegetationOutDir, "bush.png", 256, 256, (x, y, width, height) => {
