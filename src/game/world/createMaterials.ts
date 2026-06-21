@@ -30,6 +30,26 @@ export function createMaterials(scene: Scene) {
     return material;
   };
 
+  const makeImageTextured = (
+    name: string,
+    url: string,
+    fallbackColor: Color3,
+    tileScale: number,
+  ): StandardMaterial => {
+    const material = make(name, fallbackColor);
+    const texture = new Texture(url, scene, {
+      invertY: false,
+      samplingMode: Texture.NEAREST_SAMPLINGMODE,
+    });
+    texture.uScale = tileScale;
+    texture.vScale = tileScale;
+    texture.wrapU = Texture.WRAP_ADDRESSMODE;
+    texture.wrapV = Texture.WRAP_ADDRESSMODE;
+    material.diffuseTexture = texture;
+    material.diffuseColor = new Color3(1, 1, 1);
+    return material;
+  };
+
   const makeHouseWall = (name: string, base: string, line: string): StandardMaterial => makeTextured(
     name,
     Color3.FromHexString(base),
@@ -92,6 +112,9 @@ export function createMaterials(scene: Scene) {
 
   return {
     grass: make("mat-grass", new Color3(0.42, 0.72, 0.36)),
+    terrainGrass: makeImageTextured("mat-terrain-grass", "/assets/terrain/grass.png", new Color3(0.42, 0.72, 0.36), 12),
+    terrainSand: makeImageTextured("mat-terrain-sand", "/assets/terrain/sand.png", new Color3(0.78, 0.64, 0.38), 5),
+    terrainRoad: makeImageTextured("mat-terrain-road", "/assets/terrain/road.png", new Color3(0.55, 0.4, 0.25), 4),
     edge: make("mat-edge", new Color3(0.34, 0.52, 0.29)),
     player: make("mat-player", new Color3(0.18, 0.42, 0.92)),
     npc: make("mat-npc", new Color3(0.9, 0.26, 0.18)),

@@ -211,6 +211,21 @@ function addPathTile(name: string, position: Vector3, width: number, depth: numb
   path.material = materials.pathDirt;
 }
 
+function addTerrainLayer(
+  name: string,
+  position: Vector3,
+  width: number,
+  depth: number,
+  rotationY: number,
+  scene: Scene,
+  material: StandardMaterial,
+): void {
+  const layer = MeshBuilder.CreateGround(name, { width, height: depth }, scene);
+  layer.position = position;
+  layer.rotation.y = rotationY;
+  layer.material = material;
+}
+
 function addFenceSegment(name: string, position: Vector3, length: number, rotationY: number, scene: Scene, materials: CartoonMaterials): void {
   const rail = MeshBuilder.CreateBox(name, { width: length, height: 0.16, depth: 0.08 }, scene);
   rail.position = position;
@@ -219,13 +234,24 @@ function addFenceSegment(name: string, position: Vector3, length: number, rotati
 }
 
 export function createDioramaMap(scene: Scene, materials: CartoonMaterials): DioramaMap {
-  const ground = MeshBuilder.CreateBox("map-grass-platform", { width: 14, height: 0.45, depth: 10 }, scene);
-  ground.position.y = -0.25;
-  ground.material = materials.grass;
+  const terrain = MeshBuilder.CreateGroundFromHeightMap("terrain-heightmap-ground", "/assets/terrain/heightmap-valley.png", {
+    width: 36,
+    height: 28,
+    subdivisions: 96,
+    minHeight: -0.12,
+    maxHeight: 0.9,
+  }, scene);
+  terrain.material = materials.terrainGrass;
 
-  const edge = MeshBuilder.CreateBox("map-dark-edge", { width: 14.4, height: 0.42, depth: 10.4 }, scene);
-  edge.position.y = -0.52;
+  const edge = MeshBuilder.CreateBox("map-dark-edge", { width: 37, height: 0.42, depth: 29 }, scene);
+  edge.position.y = -0.42;
   edge.material = materials.edge;
+
+  addTerrainLayer("terrain-sand-south-east", new Vector3(8.5, 0.035, -6.4), 7.2, 4.8, -0.15, scene, materials.terrainSand);
+  addTerrainLayer("terrain-road-center", new Vector3(0, 0.045, 0.4), 1.25, 8.2, 0.08, scene, materials.terrainRoad);
+  addTerrainLayer("terrain-road-north", new Vector3(-1.2, 0.046, 6.8), 1.05, 8.5, -0.28, scene, materials.terrainRoad);
+  addTerrainLayer("terrain-road-east", new Vector3(8.2, 0.047, 2.1), 1.05, 11.5, Math.PI / 2 - 0.16, scene, materials.terrainRoad);
+  addTerrainLayer("terrain-road-south-west", new Vector3(-7.3, 0.048, -5.2), 1.05, 10.4, Math.PI / 2 + 0.32, scene, materials.terrainRoad);
 
   const obstacles = [
     makeObstacle("rock-west", new Vector3(-3.1, 0.28, -1.4), new Vector3(0.7, 0.35, 0.55), scene, materials),
@@ -290,7 +316,7 @@ export function createDioramaMap(scene: Scene, materials: CartoonMaterials): Dio
   addFenceSegment("fence-south-west-b", new Vector3(-4.05, 0.18, -3.85), 0.75, 0, scene, materials);
 
   return {
-    bounds: { minX: -6.4, maxX: 6.4, minZ: -4.4, maxZ: 4.4 },
+    bounds: { minX: -17.2, maxX: 17.2, minZ: -13.2, maxZ: 13.2 },
     obstacles,
   };
 }

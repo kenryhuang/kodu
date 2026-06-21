@@ -19,6 +19,10 @@ type PlayerSnapshot = {
 };
 
 type VillageSnapshot = {
+  terrainGrounds: number;
+  terrainSandLayers: number;
+  terrainRoadLayers: number;
+  terrainTextureMaterials: number;
   houseBodies: number;
   houseRoofs: number;
   houseDoors: number;
@@ -35,6 +39,12 @@ type VillageSnapshot = {
     name: string;
     topHeight: number;
   }>;
+  mapBounds: {
+    minX: number;
+    maxX: number;
+    minZ: number;
+    maxZ: number;
+  };
 };
 
 async function sampleCanvasScreenshot(page: Page, canvas: Locator): Promise<{
@@ -134,6 +144,12 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
             meshes: Array<{ name: string }>;
           };
           map?: {
+            bounds: {
+              minX: number;
+              maxX: number;
+              minZ: number;
+              maxZ: number;
+            };
             obstacles: Array<{
               name: string;
               center: { y: number };
@@ -163,11 +179,16 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
       houseChimneys: names.filter((name) => name.startsWith("house-") && name.endsWith("-chimney")).length,
       houseRoofOverhangs: names.filter((name) => name.startsWith("house-") && name.includes("-roof-overhang-")).length,
       houseRoofTiles: names.filter((name) => name.startsWith("house-") && name.includes("-roof-tile-")).length,
+      terrainGrounds: names.filter((name) => name === "terrain-heightmap-ground").length,
+      terrainSandLayers: names.filter((name) => name.startsWith("terrain-sand-")).length,
+      terrainRoadLayers: names.filter((name) => name.startsWith("terrain-road-")).length,
+      terrainTextureMaterials: materialNames.filter((name) => name.startsWith("mat-terrain-")).length,
       pathTiles: names.filter((name) => name.startsWith("village-path-")).length,
       fenceSegments: names.filter((name) => name.startsWith("fence-")).length,
       houseWallTextureMaterials: materialNames.filter((name) => name.startsWith("mat-house-wall-")).length,
       houseRoofTextureMaterials: materialNames.filter((name) => name.startsWith("mat-house-roof-")).length,
       houseObstacles,
+      mapBounds: map.bounds,
     };
   });
 }
@@ -488,6 +509,12 @@ test("renders village houses as tall blocking obstacles", async ({ page }) => {
   await expect(page.locator("#game-canvas")).toBeVisible();
 
   const village = await readVillageSnapshot(page);
+  expect(village.terrainGrounds).toBe(1);
+  expect(village.terrainSandLayers).toBeGreaterThanOrEqual(1);
+  expect(village.terrainRoadLayers).toBeGreaterThanOrEqual(4);
+  expect(village.terrainTextureMaterials).toBeGreaterThanOrEqual(3);
+  expect(village.mapBounds.maxX - village.mapBounds.minX).toBeGreaterThanOrEqual(32);
+  expect(village.mapBounds.maxZ - village.mapBounds.minZ).toBeGreaterThanOrEqual(24);
   expect(village.houseBodies).toBe(3);
   expect(village.houseRoofs).toBe(3);
   expect(village.houseDoors).toBe(3);
