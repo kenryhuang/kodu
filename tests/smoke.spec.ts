@@ -22,16 +22,29 @@ type VillageSnapshot = {
   terrainGrounds: number;
   terrainSandPatches: number;
   terrainRoadPatches: number;
+  terrainMainRoads: number;
+  terrainMainRoadVertices: number;
+  terrainMainRoadBounds: {
+    minX: number;
+    maxX: number;
+    minZ: number;
+    maxZ: number;
+  } | null;
+  terrainRoadSpurs: number;
   terrainRectangularLayers: number;
   terrainPatchMinVertices: number;
   terrainTextureMaterials: number;
   terrainAlphaBlendMaterials: number;
   terrainRepeatedAlphaMaterials: number;
+  vegetationAlphaMaterials: number;
   treeTrunkBases: number;
   treeRoots: number;
   treeBranches: number;
   treeCanopies: number;
+  treeLeafCards: number;
   treeLeafHighlights: number;
+  grassCards: number;
+  bushCards: number;
   houseBodies: number;
   houseRoofs: number;
   houseDoors: number;
@@ -155,6 +168,12 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
             }>;
             meshes: Array<{
               name: string;
+              getBoundingInfo(): {
+                boundingBox: {
+                  minimumWorld: { x: number; z: number };
+                  maximumWorld: { x: number; z: number };
+                };
+              };
               getTotalVertices(): number;
             }>;
           };
@@ -179,10 +198,17 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
     if (!scene || !map) throw new Error("Missing game scene or map");
     const names = scene.meshes.map((mesh) => mesh.name);
     const materialNames = scene.materials.map((material) => material.name);
+    const mainRoad = scene.meshes.find((mesh) => mesh.name === "terrain-road-main");
+    const mainRoadBox = mainRoad?.getBoundingInfo().boundingBox;
     const blendedTerrainMaterials = scene.materials.filter((material) => (
       material.name === "mat-terrain-sand"
       || material.name === "mat-terrain-road"
       || material.name === "mat-path-dirt"
+    ) && material.useAlphaFromDiffuseTexture);
+    const vegetationAlphaMaterials = scene.materials.filter((material) => (
+      material.name === "mat-tree-leaves-card"
+      || material.name === "mat-bush-card"
+      || material.name === "mat-grass-card"
     ) && material.useAlphaFromDiffuseTexture);
     const repeatedAlphaMaterials = blendedTerrainMaterials.filter((material) => {
       const texture = (material as unknown as {
@@ -214,16 +240,32 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
       terrainGrounds: names.filter((name) => name === "terrain-heightmap-ground").length,
       terrainSandPatches: names.filter((name) => name.startsWith("terrain-patch-sand-")).length,
       terrainRoadPatches: names.filter((name) => name.startsWith("terrain-patch-road-")).length,
-      terrainRectangularLayers: names.filter((name) => name.startsWith("terrain-sand-") || name.startsWith("terrain-road-")).length,
+      terrainMainRoads: names.filter((name) => name === "terrain-road-main").length,
+      terrainMainRoadVertices: mainRoad?.getTotalVertices() ?? 0,
+      terrainMainRoadBounds: mainRoadBox ? {
+        minX: mainRoadBox.minimumWorld.x,
+        maxX: mainRoadBox.maximumWorld.x,
+        minZ: mainRoadBox.minimumWorld.z,
+        maxZ: mainRoadBox.maximumWorld.z,
+      } : null,
+      terrainRoadSpurs: names.filter((name) => name.startsWith("terrain-road-spur-")).length,
+      terrainRectangularLayers: names.filter((name) => (
+        name.startsWith("terrain-sand-")
+        || (name.startsWith("terrain-road-") && name !== "terrain-road-main" && !name.startsWith("terrain-road-spur-"))
+      )).length,
       terrainPatchMinVertices: terrainPatchVertexCounts.length ? Math.min(...terrainPatchVertexCounts) : 0,
       terrainTextureMaterials: materialNames.filter((name) => name.startsWith("mat-terrain-")).length,
       terrainAlphaBlendMaterials: blendedTerrainMaterials.length,
       terrainRepeatedAlphaMaterials: repeatedAlphaMaterials.length,
+      vegetationAlphaMaterials: vegetationAlphaMaterials.length,
       treeTrunkBases: names.filter((name) => name.startsWith("tree-") && name.endsWith("-trunk-base")).length,
       treeRoots: names.filter((name) => name.startsWith("tree-") && name.includes("-root-")).length,
       treeBranches: names.filter((name) => name.startsWith("tree-") && name.includes("-branch-")).length,
       treeCanopies: names.filter((name) => name.startsWith("tree-") && name.includes("-canopy-")).length,
+      treeLeafCards: names.filter((name) => name.startsWith("tree-") && name.includes("-leaf-card-")).length,
       treeLeafHighlights: names.filter((name) => name.startsWith("tree-") && name.includes("-leaf-highlight-")).length,
+      grassCards: names.filter((name) => name.startsWith("grass-card-")).length,
+      bushCards: names.filter((name) => name.startsWith("bush-card-")).length,
       pathTiles: names.filter((name) => name.startsWith("village-path-")).length,
       fenceSegments: names.filter((name) => name.startsWith("fence-")).length,
       houseWallTextureMaterials: materialNames.filter((name) => name.startsWith("mat-house-wall-")).length,
@@ -368,6 +410,9 @@ test("terrain image assets are served", async ({ page }) => {
     "/assets/terrain/grass.png",
     "/assets/terrain/sand.png",
     "/assets/terrain/road.png",
+    "/assets/vegetation/tree-leaves.png",
+    "/assets/vegetation/bush.png",
+    "/assets/vegetation/grass-card.png",
   ];
   for (const asset of assets) {
     const response = await page.request.get(asset);
@@ -548,17 +593,28 @@ test("renders village houses as tall blocking obstacles", async ({ page }) => {
   const village = await readVillageSnapshot(page);
   expect(village.terrainGrounds).toBe(1);
   expect(village.terrainSandPatches).toBeGreaterThanOrEqual(2);
-  expect(village.terrainRoadPatches).toBeGreaterThanOrEqual(4);
+  expect(village.terrainRoadPatches).toBe(0);
+  expect(village.terrainMainRoads).toBe(1);
+  expect(village.terrainMainRoadVertices).toBeGreaterThanOrEqual(80);
+  expect(village.terrainMainRoadBounds).not.toBeNull();
+  expect(village.terrainMainRoadBounds!.minX).toBeLessThanOrEqual(-15);
+  expect(village.terrainMainRoadBounds!.maxX).toBeGreaterThanOrEqual(14);
+  expect(village.terrainMainRoadBounds!.minZ).toBeLessThanOrEqual(-10);
+  expect(village.terrainMainRoadBounds!.maxZ).toBeGreaterThanOrEqual(8);
+  expect(village.terrainRoadSpurs).toBeGreaterThanOrEqual(3);
   expect(village.terrainRectangularLayers).toBe(0);
   expect(village.terrainPatchMinVertices).toBeGreaterThanOrEqual(9);
   expect(village.terrainTextureMaterials).toBeGreaterThanOrEqual(3);
   expect(village.terrainAlphaBlendMaterials).toBeGreaterThanOrEqual(3);
   expect(village.terrainRepeatedAlphaMaterials).toBe(0);
+  expect(village.vegetationAlphaMaterials).toBeGreaterThanOrEqual(3);
   expect(village.treeTrunkBases).toBeGreaterThanOrEqual(5);
   expect(village.treeRoots).toBeGreaterThanOrEqual(15);
   expect(village.treeBranches).toBeGreaterThanOrEqual(10);
-  expect(village.treeCanopies).toBeGreaterThanOrEqual(15);
-  expect(village.treeLeafHighlights).toBeGreaterThanOrEqual(5);
+  expect(village.treeCanopies).toBe(0);
+  expect(village.treeLeafCards).toBeGreaterThanOrEqual(48);
+  expect(village.grassCards).toBeGreaterThanOrEqual(18);
+  expect(village.bushCards).toBeGreaterThanOrEqual(8);
   expect(village.mapBounds.maxX - village.mapBounds.minX).toBeGreaterThanOrEqual(32);
   expect(village.mapBounds.maxZ - village.mapBounds.minZ).toBeGreaterThanOrEqual(24);
   expect(village.houseBodies).toBe(3);
@@ -571,7 +627,7 @@ test("renders village houses as tall blocking obstacles", async ({ page }) => {
   expect(village.houseRoofTiles).toBeGreaterThanOrEqual(12);
   expect(village.houseWallTextureMaterials).toBeGreaterThanOrEqual(3);
   expect(village.houseRoofTextureMaterials).toBeGreaterThanOrEqual(3);
-  expect(village.pathTiles).toBeGreaterThanOrEqual(4);
+  expect(village.pathTiles).toBe(0);
   expect(village.fenceSegments).toBeGreaterThanOrEqual(4);
   expect(village.houseObstacles).toHaveLength(3);
   for (const obstacle of village.houseObstacles) {

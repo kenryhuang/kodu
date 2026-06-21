@@ -102,6 +102,36 @@ function addSimpleBox(
   mesh.material = material;
 }
 
+function addVegetationCard(
+  name: string,
+  position: Vector3,
+  width: number,
+  height: number,
+  yaw: number,
+  material: StandardMaterial,
+  scene: Scene,
+  pitch = 0,
+): void {
+  const card = MeshBuilder.CreatePlane(name, { width, height, sideOrientation: Mesh.DOUBLESIDE }, scene);
+  card.position = position;
+  card.rotation.x = pitch;
+  card.rotation.y = yaw;
+  card.material = material;
+}
+
+function addCrossCards(
+  prefix: string,
+  position: Vector3,
+  width: number,
+  height: number,
+  yaw: number,
+  material: StandardMaterial,
+  scene: Scene,
+): void {
+  addVegetationCard(`${prefix}-0`, position, width, height, yaw, material, scene);
+  addVegetationCard(`${prefix}-1`, position, width * 0.94, height * 0.98, yaw + Math.PI / 2, material, scene);
+}
+
 function addFaceDetail(
   name: string,
   face: HouseFace,
@@ -284,26 +314,32 @@ function addTree(
     addSimpleBox(`${name}-branch-${index}`, center, (0.5 - index * 0.05) * scale, 0.08 * scale, 0.1 * scale, branchYaw, materials.treeTrunk, scene, index % 2 === 0 ? 0.12 : -0.1);
   }
 
-  const canopyParts = [
-    { id: "center", x: 0, y: 1.2, z: 0, d: 0.92, sx: 1, sy: 0.78, sz: 1, material: materials.treeTop },
-    { id: "front", x: 0.08, y: 1.12, z: -0.28, d: 0.66, sx: 1.08, sy: 0.72, sz: 0.92, material: materials.treeTopDark },
-    { id: "back", x: -0.08, y: 1.17, z: 0.3, d: 0.68, sx: 1.02, sy: 0.78, sz: 1.08, material: materials.treeTop },
-    { id: "left", x: -0.31, y: 1.15, z: 0.02, d: 0.65, sx: 0.9, sy: 0.76, sz: 1.02, material: materials.treeTopDark },
-    { id: "right", x: 0.32, y: 1.18, z: 0.05, d: 0.62, sx: 0.98, sy: 0.72, sz: 0.9, material: materials.treeTop },
+  const leafClusters = [
+    { id: "center", x: 0, y: 1.26, z: 0, w: 1.2, h: 1.05, yawOffset: 0 },
+    { id: "front", x: 0.12, y: 1.12, z: -0.34, w: 0.96, h: 0.86, yawOffset: 0.62 },
+    { id: "back", x: -0.1, y: 1.18, z: 0.34, w: 0.98, h: 0.88, yawOffset: -0.48 },
+    { id: "left", x: -0.4, y: 1.16, z: 0.02, w: 0.92, h: 0.84, yawOffset: 1.18 },
+    { id: "right", x: 0.42, y: 1.2, z: 0.08, w: 0.9, h: 0.82, yawOffset: -1.05 },
   ];
 
-  for (const part of canopyParts) {
-    const world = toHouseWorld(position, yaw, part.x * scale, part.y * scale, part.z * scale);
-    const canopy = MeshBuilder.CreateSphere(`${name}-canopy-${part.id}`, { diameter: part.d * scale, segments: 12 }, scene);
-    canopy.position = world;
-    canopy.scaling = new Vector3(part.sx * shapeScale.x, part.sy * shapeScale.y, part.sz * shapeScale.z);
-    canopy.material = part.material;
+  for (const cluster of leafClusters) {
+    const world = toHouseWorld(
+      position,
+      yaw,
+      cluster.x * scale * shapeScale.x,
+      cluster.y * scale * shapeScale.y,
+      cluster.z * scale * shapeScale.z,
+    );
+    addCrossCards(
+      `${name}-leaf-card-${cluster.id}`,
+      world,
+      cluster.w * scale * shapeScale.x,
+      cluster.h * scale * shapeScale.y,
+      yaw + cluster.yawOffset,
+      materials.treeLeavesCard,
+      scene,
+    );
   }
-
-  const highlight = MeshBuilder.CreateSphere(`${name}-leaf-highlight-main`, { diameter: 0.26 * scale, segments: 8 }, scene);
-  highlight.position = toHouseWorld(position, yaw, -0.18 * scale, 1.45 * scale * shapeScale.y, -0.22 * scale);
-  highlight.scaling = new Vector3(1.15, 0.58, 0.86);
-  highlight.material = materials.treeTopLight;
 }
 
 const organicPatchTemplates: PatchPoint[][] = [
@@ -487,6 +523,44 @@ function addTerrainPatch(
   mesh.material = material;
 }
 
+function addGroundVegetation(scene: Scene, materials: CartoonMaterials): void {
+  const bushes = [
+    ["west-a", -7.2, -0.8, 0.75, 0.58, 0.3],
+    ["west-b", -8.9, 1.7, 0.68, 0.52, -0.4],
+    ["grove-a", 2.0, -4.65, 0.72, 0.55, 1.2],
+    ["grove-b", 6.7, 4.2, 0.78, 0.58, -1.1],
+  ] as const;
+  for (const [id, x, z, width, height, yaw] of bushes) {
+    addCrossCards(
+      `bush-card-${id}`,
+      new Vector3(x, terrainVisualHeightAt(x, z) + height * 0.5 + 0.04, z),
+      width,
+      height,
+      yaw,
+      materials.bushCard,
+      scene,
+    );
+  }
+
+  const grasses = [
+    [-10.8, -4.8], [-9.6, -2.6], [-7.6, 3.3], [-5.9, 5.2],
+    [-2.7, -7.4], [0.8, -6.1], [2.9, -5.5], [4.2, -4.4],
+    [6.4, -3.4], [8.8, -1.2], [9.6, 2.9], [11.4, 5.1],
+  ] as const;
+  grasses.forEach(([x, z], index) => {
+    const height = 0.66 + (index % 2) * 0.1;
+    addCrossCards(
+      `grass-card-meadow-${index}`,
+      new Vector3(x, terrainVisualHeightAt(x, z) + height * 0.5 + 0.035, z),
+      0.54 + (index % 3) * 0.08,
+      height,
+      index * 0.47,
+      materials.grassCard,
+      scene,
+    );
+  });
+}
+
 function addFenceSegment(name: string, position: Vector3, length: number, rotationY: number, scene: Scene, materials: CartoonMaterials): void {
   const rail = MeshBuilder.CreateBox(name, { width: length, height: 0.16, depth: 0.08 }, scene);
   rail.position = position;
@@ -586,6 +660,7 @@ export function createDioramaMap(scene: Scene, materials: CartoonMaterials): Dio
   addTree("tree-village-grove-b", new Vector3(7.4, 0, 4.9), scene, materials, { scale: 1.1, yaw: -1.05, shape: "round" });
   addTree("tree-west-meadow", new Vector3(-8.35, 0, 0.85), scene, materials, { scale: 0.88, yaw: 2.1, shape: "tall" });
   addTree("tree-south-meadow", new Vector3(-1.7, 0, -6.4), scene, materials, { scale: 1.18, yaw: 0.75, shape: "wide" });
+  addGroundVegetation(scene, materials);
 
   addFenceSegment("fence-north-a", new Vector3(-2.35, 0.18, 2.42), 0.9, 0, scene, materials);
   addFenceSegment("fence-north-b", new Vector3(-0.2, 0.18, 2.45), 0.75, 0, scene, materials);
