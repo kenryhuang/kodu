@@ -596,6 +596,70 @@ test("player cannot land on an obstacle above jump reach", async ({ page }) => {
   expect(after.footHeight).toBeCloseTo(0, 1);
 });
 
+test("airborne player cannot pass through high obstacles", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#game-canvas")).toBeVisible();
+
+  const obstacleCenterX = 1.1;
+  const obstacleHalfX = 0.55;
+  const playerRadius = 0.42;
+  await addTestObstacle(page, {
+    name: "test-airborne-high-obstacle",
+    center: { x: obstacleCenterX, y: 0.95, z: 0 },
+    halfExtents: { x: obstacleHalfX, y: 0.95, z: 0.65 },
+  });
+
+  const after = await page.evaluate(() => {
+    const app = (globalThis as typeof globalThis & {
+      __KODU_APP__?: {
+        gameScene?: {
+          input?: unknown;
+          player?: {
+            footHeight: number;
+            isGrounded: boolean;
+            landOnSurface(surfaceHeight: number): void;
+            position: { x: number; y: number; z: number };
+          };
+          update(deltaSeconds: number): void;
+        };
+      };
+    }).__KODU_APP__;
+    const gameScene = app?.gameScene;
+    const player = gameScene?.player;
+    if (!gameScene || !player) throw new Error("Missing game scene or player");
+
+    player.landOnSurface(0);
+    player.position.x = 0;
+    player.position.z = 0;
+
+    let jumpAvailable = true;
+    gameScene.input = {
+      consumeFire: () => false,
+      consumeJump: () => {
+        const shouldJump = jumpAvailable;
+        jumpAvailable = false;
+        return shouldJump;
+      },
+      get moveX() { return 1; },
+      get moveZ() { return 0; },
+      getPointerAimDirection: () => undefined,
+    };
+
+    for (let step = 0; step < 70; step += 1) {
+      gameScene.update(1 / 60);
+    }
+
+    return {
+      footHeight: player.footHeight,
+      grounded: player.isGrounded,
+      x: player.position.x,
+    };
+  });
+
+  expect(after.footHeight).toBeLessThan(1.9);
+  expect(after.x + playerRadius).toBeLessThanOrEqual(obstacleCenterX - obstacleHalfX + 0.03);
+});
+
 test("updates orthographic bounds when the viewport resizes", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#game-canvas")).toBeVisible();

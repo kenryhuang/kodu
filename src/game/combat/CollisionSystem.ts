@@ -58,11 +58,24 @@ function overlapsObstacleTop(position: Vector3, radius: number, obstacle: Obstac
   );
 }
 
+function getObstacleTop(obstacle: Obstacle): number {
+  return obstacle.center.y + obstacle.halfExtents.y;
+}
+
+function isStandingOnObstacle(player: PlayerController, obstacle: Obstacle): boolean {
+  return player.isGrounded && Math.abs(player.surfaceHeight - getObstacleTop(obstacle)) <= collisionEpsilon && overlapsObstacleTop(player.position, player.radius, obstacle);
+}
+
+function blocksPlayerHorizontally(player: PlayerController, obstacle: Obstacle): boolean {
+  if (isStandingOnObstacle(player, obstacle)) return false;
+  return player.footHeight < getObstacleTop(obstacle) - collisionEpsilon;
+}
+
 function getHighestObstacleSupport(player: PlayerController, map: DioramaMap): number | undefined {
   let supportHeight: number | undefined;
   for (const obstacle of map.obstacles) {
     if (!overlapsObstacleTop(player.position, player.radius, obstacle)) continue;
-    const obstacleTop = obstacle.center.y + obstacle.halfExtents.y;
+    const obstacleTop = getObstacleTop(obstacle);
     if (!player.canLandOnSurface(obstacleTop)) continue;
     if (player.previousFootHeight < obstacleTop || player.footHeight > obstacleTop) continue;
     supportHeight = supportHeight === undefined ? obstacleTop : Math.max(supportHeight, obstacleTop);
@@ -73,7 +86,7 @@ function getHighestObstacleSupport(player: PlayerController, map: DioramaMap): n
 function hasSupportAtHeight(player: PlayerController, map: DioramaMap, surfaceHeight: number): boolean {
   if (surfaceHeight <= collisionEpsilon) return true;
   return map.obstacles.some((obstacle) => {
-    const obstacleTop = obstacle.center.y + obstacle.halfExtents.y;
+    const obstacleTop = getObstacleTop(obstacle);
     return Math.abs(obstacleTop - surfaceHeight) <= collisionEpsilon && overlapsObstacleTop(player.position, player.radius, obstacle);
   });
 }
@@ -83,6 +96,7 @@ export class CollisionSystem {
     for (let pass = 0; pass < 3; pass += 1) {
       let moved = false;
       for (const obstacle of map.obstacles) {
+        if (!blocksPlayerHorizontally(player, obstacle)) continue;
         const pushOut = resolveCircleAgainstObstacle(player.position, player.radius, obstacle);
         if (!pushOut) continue;
         player.position.addInPlace(pushOut);
