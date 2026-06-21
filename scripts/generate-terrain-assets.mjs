@@ -4,8 +4,10 @@ import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const outDir = join(root, "public", "assets", "terrain");
-mkdirSync(outDir, { recursive: true });
+const terrainOutDir = join(root, "public", "assets", "terrain");
+const vegetationOutDir = join(root, "public", "assets", "vegetation");
+mkdirSync(terrainOutDir, { recursive: true });
+mkdirSync(vegetationOutDir, { recursive: true });
 
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const crcTable = Array.from({ length: 256 }, (_, index) => {
@@ -29,7 +31,7 @@ function chunk(type, data) {
   return Buffer.concat([length, typeBuffer, data, crc]);
 }
 
-function writePng(fileName, width, height, pixelAt) {
+function writePng(outDir, fileName, width, height, pixelAt) {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);
   ihdr.writeUInt32BE(height, 4);
@@ -98,6 +100,16 @@ function edgeAlpha(x, y, width, height, feather) {
   return Math.round(clamp(smooth(clamp(distance / feather, 0, 1)) * 255, 0, 255));
 }
 
+function ellipseMask(x, y, cx, cy, rx, ry) {
+  const dx = (x - cx) / rx;
+  const dy = (y - cy) / ry;
+  return Math.max(0, 1 - dx * dx - dy * dy);
+}
+
+function softShapeAlpha(amount) {
+  return Math.round(clamp(smooth(clamp(amount, 0, 1)) * 255, 0, 255));
+}
+
 function grassBladeAmount(x, y) {
   const cellSize = 6;
   const cellX = Math.floor(x / cellSize);
@@ -118,7 +130,7 @@ function grassBladeAmount(x, y) {
   return distance < 0.65 ? 1 - distance / 0.65 : 0;
 }
 
-writePng("heightmap-valley.png", 128, 128, (x, y, width, height) => {
+writePng(terrainOutDir, "heightmap-valley.png", 128, 128, (x, y, width, height) => {
   const nx = (x / (width - 1)) * 2 - 1;
   const nz = (y / (height - 1)) * 2 - 1;
   const radius = Math.sqrt(nx * nx + nz * nz);
@@ -131,7 +143,7 @@ writePng("heightmap-valley.png", 128, 128, (x, y, width, height) => {
   return [shade, shade, shade, 255];
 });
 
-writePng("grass.png", 256, 256, (x, y, width, height) => {
+writePng(terrainOutDir, "grass.png", 256, 256, (x, y, width, height) => {
   const broad = fbm(x, y, 3, width, height);
   const meadow = tileNoise(x, y, 64, 12, width, height);
   const clump = tileNoise(x, y, 24, 18, width, height);
@@ -146,7 +158,7 @@ writePng("grass.png", 256, 256, (x, y, width, height) => {
   return [...color, 255];
 });
 
-writePng("sand.png", 256, 256, (x, y, width, height) => {
+writePng(terrainOutDir, "sand.png", 256, 256, (x, y, width, height) => {
   const broad = fbm(x, y, 7, width, height);
   const ripples = Math.sin((x * 0.17 + y * 0.08 + tileNoise(x, y, 16, 16, width, height) * 2.4) * Math.PI);
   let color = mixColor([172, 133, 77], [226, 188, 111], broad);
@@ -158,7 +170,7 @@ writePng("sand.png", 256, 256, (x, y, width, height) => {
   return [...color, edgeAlpha(x, y, width, height, 24)];
 });
 
-writePng("road.png", 256, 256, (x, y, width, height) => {
+writePng(terrainOutDir, "road.png", 256, 256, (x, y, width, height) => {
   const across = Math.abs(x / (width - 1) - 0.5) * 2;
   const centerWear = Math.max(0, 1 - across);
   const mud = fbm(x, y, 11, width, height);
@@ -170,4 +182,47 @@ writePng("road.png", 256, 256, (x, y, width, height) => {
   if (speckle(x, y, 61, 0.94)) color = shade(color, hash(x, y, 62) > 0.48 ? 25 : -28);
   const sideFade = smooth(clamp((1 - across) / 0.2, 0, 1));
   return [...color, Math.min(edgeAlpha(x, y, width, height, 18), Math.round(sideFade * 255))];
+});
+
+writePng(vegetationOutDir, "tree-leaves.png", 256, 256, (x, y, width, height) => {
+  const clusters = [
+    [86, 102, 55, 42],
+    [132, 82, 64, 48],
+    [166, 124, 62, 50],
+    [108, 152, 70, 54],
+    [146, 166, 58, 44],
+  ];
+  let mask = 0;
+  for (const [cx, cy, rx, ry] of clusters) {
+    mask = Math.max(mask, ellipseMask(x, y, cx, cy, rx, ry));
+  }
+  const noise = fbm(x, y, 81, width, height);
+  let color = mixColor([35, 103, 48], [104, 164, 70], noise);
+  if (hash(x, y, 82) > 0.965) color = shade(color, 28);
+  if (hash(x, y, 83) > 0.955) color = shade(color, -24);
+  return [...color, softShapeAlpha(mask)];
+});
+
+writePng(vegetationOutDir, "bush.png", 256, 256, (x, y, width, height) => {
+  const clusters = [
+    [76, 166, 54, 44],
+    [122, 136, 70, 58],
+    [174, 164, 58, 46],
+    [132, 184, 86, 42],
+  ];
+  let mask = 0;
+  for (const [cx, cy, rx, ry] of clusters) {
+    mask = Math.max(mask, ellipseMask(x, y, cx, cy, rx, ry));
+  }
+  const color = mixColor([42, 115, 55], [123, 170, 78], fbm(x, y, 91, width, height));
+  return [...color, softShapeAlpha(mask)];
+});
+
+writePng(vegetationOutDir, "grass-card.png", 256, 256, (x, y, width, height) => {
+  const ground = y / (height - 1);
+  const bladeField = Math.max(0, ground - 0.25);
+  const blade = grassBladeAmount(x, y)
+    || (hash(Math.floor(x / 5), Math.floor(y / 9), 101) > 0.62 && bladeField > 0 ? bladeField : 0);
+  const color = mixColor([46, 111, 48], [139, 187, 82], fbm(x, y, 102, width, height));
+  return [...color, Math.round(clamp(blade * 255, 0, 255))];
 });
