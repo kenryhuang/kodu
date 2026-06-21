@@ -5,6 +5,7 @@ import type { Scene } from "@babylonjs/core/scene";
 export class CameraRig {
   readonly camera: FreeCamera;
   private target = Vector3.Zero();
+  private readonly fixedTargetY = 0.62;
   private readonly offset = new Vector3(6.8, 8.4, -7.2);
 
   constructor(scene: Scene) {
@@ -18,7 +19,7 @@ export class CameraRig {
   }
 
   setTarget(target: Vector3): void {
-    this.target.copyFrom(target);
+    this.target.set(target.x, this.fixedTargetY, target.z);
   }
 
   resize(width: number, height: number): void {

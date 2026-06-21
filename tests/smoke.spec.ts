@@ -5,6 +5,8 @@ type CameraSnapshot = {
   renderHeight: number;
   orthoLeft: number;
   orthoRight: number;
+  positionY: number;
+  targetY: number;
 };
 
 type PlayerSnapshot = {
@@ -248,7 +250,21 @@ async function addTestObstacle(
 
 async function readCameraSnapshot(page: Page): Promise<CameraSnapshot> {
   return page.evaluate(() => {
-    const app = (globalThis as typeof globalThis & { __KODU_APP__?: { gameScene?: { scene?: { activeCamera?: Record<string, number>; getEngine(): { getRenderWidth(): number; getRenderHeight(): number } } } } }).__KODU_APP__;
+    const app = (globalThis as typeof globalThis & {
+      __KODU_APP__?: {
+        gameScene?: {
+          scene?: {
+            activeCamera?: {
+              getTarget(): { y: number };
+              orthoLeft: number;
+              orthoRight: number;
+              position: { y: number };
+            };
+            getEngine(): { getRenderWidth(): number; getRenderHeight(): number };
+          };
+        };
+      };
+    }).__KODU_APP__;
     const scene = app?.gameScene?.scene;
     const camera = scene?.activeCamera;
     if (!scene || !camera) throw new Error("Missing active camera");
@@ -258,6 +274,8 @@ async function readCameraSnapshot(page: Page): Promise<CameraSnapshot> {
       renderHeight: scene.getEngine().getRenderHeight(),
       orthoLeft: Number(camera.orthoLeft),
       orthoRight: Number(camera.orthoRight),
+      positionY: camera.position.y,
+      targetY: camera.getTarget().y,
     };
   });
 }
@@ -363,6 +381,91 @@ test("space jumps without firing a projectile", async ({ page }) => {
 
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
+});
+
+test("camera ignores player jump height", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#game-canvas")).toBeVisible();
+  await page.waitForFunction(() => {
+    const app = (globalThis as typeof globalThis & {
+      __KODU_APP__?: {
+        gameScene?: {
+          scene?: {
+            activeCamera?: {
+              getTarget(): { y: number };
+              position: { y: number };
+            };
+          };
+        };
+      };
+    }).__KODU_APP__;
+    const camera = app?.gameScene?.scene?.activeCamera;
+    return Boolean(camera && Math.abs(camera.position.y - (camera.getTarget().y + 8.4)) < 0.03);
+  });
+
+  const before = await readCameraSnapshot(page);
+  const playerBefore = await readPlayerSnapshot(page);
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "Space",
+      key: " ",
+    }));
+  });
+
+  let during: CameraSnapshot & { playerY: number } | undefined;
+  try {
+    const jumpSample = await page.waitForFunction((startY) => {
+      const app = (globalThis as typeof globalThis & {
+        __KODU_APP__?: {
+          gameScene?: {
+            player?: {
+              position: { y: number };
+            };
+            scene?: {
+              activeCamera?: {
+                getTarget(): { y: number };
+                orthoLeft: number;
+                orthoRight: number;
+                position: { y: number };
+              };
+              getEngine(): { getRenderWidth(): number; getRenderHeight(): number };
+            };
+          };
+        };
+      }).__KODU_APP__;
+      const gameScene = app?.gameScene;
+      const player = gameScene?.player;
+      const scene = gameScene?.scene;
+      const camera = scene?.activeCamera;
+      if (!player || !scene || !camera || player.position.y <= startY + 0.35) return false;
+      return {
+        renderWidth: scene.getEngine().getRenderWidth(),
+        renderHeight: scene.getEngine().getRenderHeight(),
+        orthoLeft: Number(camera.orthoLeft),
+        orthoRight: Number(camera.orthoRight),
+        positionY: camera.position.y,
+        targetY: camera.getTarget().y,
+        playerY: player.position.y,
+      };
+    }, playerBefore.y);
+    during = await jumpSample.jsonValue() as CameraSnapshot & { playerY: number };
+  } finally {
+    await page.evaluate(() => {
+      window.dispatchEvent(new KeyboardEvent("keyup", {
+        bubbles: true,
+        code: "Space",
+        key: " ",
+      }));
+    });
+  }
+
+  if (!during) throw new Error("Missing camera jump sample");
+  expect(during.playerY).toBeGreaterThan(playerBefore.y + 0.35);
+  expect(during.targetY).toBeCloseTo(before.targetY, 2);
+  expect(during.positionY).toBeCloseTo(before.positionY, 1);
 });
 
 test("renders village houses as tall blocking obstacles", async ({ page }) => {
