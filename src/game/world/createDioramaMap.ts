@@ -1,6 +1,8 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
+import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
 import type { Scene } from "@babylonjs/core/scene";
 import type { DioramaMap, Obstacle } from "../types";
 import type { CartoonMaterials } from "./createMaterials";
@@ -38,6 +40,14 @@ type HouseStyle = {
   readonly roofTileRows: number;
 };
 
+type PatchPoint = readonly [number, number];
+
+type TreeStyle = {
+  readonly scale: number;
+  readonly yaw: number;
+  readonly shape: "round" | "tall" | "wide";
+};
+
 function toHouseWorld(center: Vector3, yaw: number, localX: number, y: number, localZ: number): Vector3 {
   const cos = Math.cos(yaw);
   const sin = Math.sin(yaw);
@@ -65,6 +75,24 @@ function addDetailBox(
   const mesh = MeshBuilder.CreateBox(name, { width, height, depth }, scene);
   mesh.position = toHouseWorld(center, yaw, localX, y, localZ);
   mesh.rotation.y = rotationY;
+  mesh.material = material;
+}
+
+function addSimpleBox(
+  name: string,
+  position: Vector3,
+  width: number,
+  height: number,
+  depth: number,
+  rotationY: number,
+  material: StandardMaterial,
+  scene: Scene,
+  rotationZ = 0,
+): void {
+  const mesh = MeshBuilder.CreateBox(name, { width, height, depth }, scene);
+  mesh.position = position;
+  mesh.rotation.y = rotationY;
+  mesh.rotation.z = rotationZ;
   mesh.material = material;
 }
 
@@ -193,25 +221,131 @@ function addHouse(
   addHouseDetails(name, center, halfExtents, roofYaw, style, scene, materials);
 }
 
-function addTree(name: string, position: Vector3, scene: Scene, materials: CartoonMaterials): void {
-  const trunk = MeshBuilder.CreateCylinder(`${name}-trunk`, { height: 0.75, diameter: 0.22, tessellation: 8 }, scene);
-  trunk.position = position.add(new Vector3(0, 0.38, 0));
-  trunk.material = materials.treeTrunk;
+function addTree(
+  name: string,
+  position: Vector3,
+  scene: Scene,
+  materials: CartoonMaterials,
+  style: Partial<TreeStyle> = {},
+): void {
+  const scale = style.scale ?? 1;
+  const yaw = style.yaw ?? 0;
+  const shape = style.shape ?? "round";
+  const shapeScale = {
+    round: { x: 1, y: 1, z: 1 },
+    tall: { x: 0.82, y: 1.22, z: 0.86 },
+    wide: { x: 1.24, y: 0.9, z: 1.12 },
+  }[shape];
 
-  const top = MeshBuilder.CreateSphere(`${name}-top`, { diameter: 0.9, segments: 12 }, scene);
-  top.position = position.add(new Vector3(0, 0.95, 0));
-  top.scaling.y = 0.82;
-  top.material = materials.treeTop;
+  const shadow = MeshBuilder.CreateCylinder(`${name}-shadow`, { height: 0.018, diameter: 1.45 * scale, tessellation: 18 }, scene);
+  shadow.position = position.add(new Vector3(0, 0.014, 0));
+  shadow.scaling.z = 0.58;
+  shadow.rotation.y = yaw;
+  shadow.material = materials.treeShadow;
+
+  const trunkBase = MeshBuilder.CreateCylinder(`${name}-trunk-base`, {
+    height: 0.62 * scale,
+    diameterBottom: 0.3 * scale,
+    diameterTop: 0.21 * scale,
+    tessellation: 8,
+  }, scene);
+  trunkBase.position = position.add(new Vector3(0, 0.32 * scale, 0));
+  trunkBase.rotation.z = 0.04 * Math.sin(yaw);
+  trunkBase.material = materials.treeTrunk;
+
+  const trunkUpper = MeshBuilder.CreateCylinder(`${name}-trunk-upper`, {
+    height: 0.42 * scale,
+    diameterBottom: 0.21 * scale,
+    diameterTop: 0.15 * scale,
+    tessellation: 8,
+  }, scene);
+  trunkUpper.position = position.add(new Vector3(0.04 * scale * Math.cos(yaw), 0.8 * scale, -0.04 * scale * Math.sin(yaw)));
+  trunkUpper.rotation.z = 0.08 * Math.cos(yaw);
+  trunkUpper.material = materials.treeTrunk;
+
+  addDetailBox(`${name}-bark-highlight`, position, yaw, -0.065 * scale, 0.52 * scale, -0.13 * scale, 0.04 * scale, 0.52 * scale, 0.032 * scale, materials.treeBarkLight, scene);
+
+  for (let index = 0; index < 4; index += 1) {
+    const rootYaw = yaw + index * Math.PI * 0.5 + (index % 2 === 0 ? 0.18 : -0.12);
+    const center = position.add(new Vector3(Math.cos(rootYaw) * 0.2 * scale, 0.08 * scale, Math.sin(rootYaw) * 0.2 * scale));
+    addSimpleBox(`${name}-root-${index}`, center, 0.48 * scale, 0.08 * scale, 0.13 * scale, rootYaw, materials.treeTrunk, scene, index % 2 === 0 ? 0.04 : -0.04);
+  }
+
+  for (let index = 0; index < 3; index += 1) {
+    const branchYaw = yaw + index * Math.PI * 0.68 + 0.28;
+    const branchY = (0.78 + index * 0.12) * scale;
+    const center = position.add(new Vector3(Math.cos(branchYaw) * 0.21 * scale, branchY, Math.sin(branchYaw) * 0.21 * scale));
+    addSimpleBox(`${name}-branch-${index}`, center, (0.5 - index * 0.05) * scale, 0.08 * scale, 0.1 * scale, branchYaw, materials.treeTrunk, scene, index % 2 === 0 ? 0.12 : -0.1);
+  }
+
+  const canopyParts = [
+    { id: "center", x: 0, y: 1.2, z: 0, d: 0.92, sx: 1, sy: 0.78, sz: 1, material: materials.treeTop },
+    { id: "front", x: 0.08, y: 1.12, z: -0.28, d: 0.66, sx: 1.08, sy: 0.72, sz: 0.92, material: materials.treeTopDark },
+    { id: "back", x: -0.08, y: 1.17, z: 0.3, d: 0.68, sx: 1.02, sy: 0.78, sz: 1.08, material: materials.treeTop },
+    { id: "left", x: -0.31, y: 1.15, z: 0.02, d: 0.65, sx: 0.9, sy: 0.76, sz: 1.02, material: materials.treeTopDark },
+    { id: "right", x: 0.32, y: 1.18, z: 0.05, d: 0.62, sx: 0.98, sy: 0.72, sz: 0.9, material: materials.treeTop },
+  ];
+
+  for (const part of canopyParts) {
+    const world = toHouseWorld(position, yaw, part.x * scale, part.y * scale, part.z * scale);
+    const canopy = MeshBuilder.CreateSphere(`${name}-canopy-${part.id}`, { diameter: part.d * scale, segments: 12 }, scene);
+    canopy.position = world;
+    canopy.scaling = new Vector3(part.sx * shapeScale.x, part.sy * shapeScale.y, part.sz * shapeScale.z);
+    canopy.material = part.material;
+  }
+
+  const highlight = MeshBuilder.CreateSphere(`${name}-leaf-highlight-main`, { diameter: 0.26 * scale, segments: 8 }, scene);
+  highlight.position = toHouseWorld(position, yaw, -0.18 * scale, 1.45 * scale * shapeScale.y, -0.22 * scale);
+  highlight.scaling = new Vector3(1.15, 0.58, 0.86);
+  highlight.material = materials.treeTopLight;
 }
 
-function addPathTile(name: string, position: Vector3, width: number, depth: number, rotationY: number, scene: Scene, materials: CartoonMaterials): void {
-  const path = MeshBuilder.CreateBox(name, { width, height: 0.04, depth }, scene);
-  path.position = position;
-  path.rotation.y = rotationY;
-  path.material = materials.pathDirt;
+const organicPatchTemplates: PatchPoint[][] = [
+  [
+    [-0.48, -0.46],
+    [-0.18, -0.55],
+    [0.18, -0.5],
+    [0.5, -0.36],
+    [0.55, -0.05],
+    [0.45, 0.38],
+    [0.1, 0.54],
+    [-0.28, 0.48],
+    [-0.55, 0.2],
+    [-0.5, -0.2],
+  ],
+  [
+    [-0.42, -0.52],
+    [-0.08, -0.48],
+    [0.24, -0.56],
+    [0.52, -0.32],
+    [0.46, -0.02],
+    [0.56, 0.28],
+    [0.22, 0.5],
+    [-0.12, 0.55],
+    [-0.5, 0.34],
+    [-0.56, 0.02],
+    [-0.48, -0.32],
+  ],
+  [
+    [-0.54, -0.36],
+    [-0.28, -0.52],
+    [0.08, -0.48],
+    [0.38, -0.54],
+    [0.55, -0.2],
+    [0.5, 0.16],
+    [0.34, 0.5],
+    [-0.06, 0.52],
+    [-0.38, 0.44],
+    [-0.55, 0.12],
+  ],
+];
+
+function makeOrganicPatchPoints(width: number, depth: number, variant: number): PatchPoint[] {
+  const template = organicPatchTemplates[variant % organicPatchTemplates.length];
+  return template.map(([x, z]) => [x * width, z * depth]);
 }
 
-function addTerrainLayer(
+function addTerrainPatch(
   name: string,
   position: Vector3,
   width: number,
@@ -219,11 +353,45 @@ function addTerrainLayer(
   rotationY: number,
   scene: Scene,
   material: StandardMaterial,
+  variant = 0,
 ): void {
-  const layer = MeshBuilder.CreateGround(name, { width, height: depth }, scene);
-  layer.position = position;
-  layer.rotation.y = rotationY;
-  layer.material = material;
+  const points = makeOrganicPatchPoints(width, depth, variant);
+  const mesh = new Mesh(name, scene);
+  const positions = [0, 0, 0];
+  const normals = [0, 1, 0];
+  const uvs = [0.5, 0.5];
+  const xs = points.map(([x]) => x);
+  const zs = points.map(([, z]) => z);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minZ = Math.min(...zs);
+  const maxZ = Math.max(...zs);
+
+  for (const [x, z] of points) {
+    positions.push(x, 0, z);
+    normals.push(0, 1, 0);
+    uvs.push((x - minX) / (maxX - minX), (z - minZ) / (maxZ - minZ));
+  }
+
+  const indices: number[] = [];
+  for (let index = 1; index <= points.length; index += 1) {
+    const next = index === points.length ? 1 : index + 1;
+    indices.push(0, next, index);
+  }
+
+  const vertexData = new VertexData();
+  vertexData.positions = positions;
+  vertexData.indices = indices;
+  vertexData.normals = normals;
+  vertexData.uvs = uvs;
+  vertexData.applyToMesh(mesh);
+  mesh.position = position;
+  mesh.rotation.y = rotationY;
+  mesh.material = material;
+}
+
+function addPathTile(name: string, position: Vector3, width: number, depth: number, rotationY: number, scene: Scene, materials: CartoonMaterials): void {
+  addTerrainPatch(name, position, width, depth, rotationY, scene, materials.pathDirt, name.length % organicPatchTemplates.length);
 }
 
 function addFenceSegment(name: string, position: Vector3, length: number, rotationY: number, scene: Scene, materials: CartoonMaterials): void {
@@ -247,12 +415,12 @@ export function createDioramaMap(scene: Scene, materials: CartoonMaterials): Dio
   edge.position.y = -0.42;
   edge.material = materials.edge;
 
-  addTerrainLayer("terrain-sand-south-east", new Vector3(8.5, 0.035, -6.4), 7.2, 4.8, -0.15, scene, materials.terrainSand);
-  addTerrainLayer("terrain-sand-village-grove", new Vector3(4.7, 0.041, -2.65), 4.3, 2.6, -0.28, scene, materials.terrainSand);
-  addTerrainLayer("terrain-road-center", new Vector3(0, 0.045, 0.4), 1.25, 8.2, 0.08, scene, materials.terrainRoad);
-  addTerrainLayer("terrain-road-north", new Vector3(-1.2, 0.046, 6.8), 1.05, 8.5, -0.28, scene, materials.terrainRoad);
-  addTerrainLayer("terrain-road-east", new Vector3(8.2, 0.047, 2.1), 1.05, 11.5, Math.PI / 2 - 0.16, scene, materials.terrainRoad);
-  addTerrainLayer("terrain-road-south-west", new Vector3(-7.3, 0.048, -5.2), 1.05, 10.4, Math.PI / 2 + 0.32, scene, materials.terrainRoad);
+  addTerrainPatch("terrain-patch-sand-south-east", new Vector3(8.5, 0.035, -6.4), 7.2, 4.8, -0.15, scene, materials.terrainSand, 0);
+  addTerrainPatch("terrain-patch-sand-village-grove", new Vector3(4.7, 0.041, -2.65), 4.3, 2.6, -0.28, scene, materials.terrainSand, 1);
+  addTerrainPatch("terrain-patch-road-center", new Vector3(0, 0.045, 0.4), 1.25, 8.2, 0.08, scene, materials.terrainRoad, 2);
+  addTerrainPatch("terrain-patch-road-north", new Vector3(-1.2, 0.046, 6.8), 1.05, 8.5, -0.28, scene, materials.terrainRoad, 1);
+  addTerrainPatch("terrain-patch-road-east", new Vector3(8.2, 0.047, 2.1), 1.05, 11.5, Math.PI / 2 - 0.16, scene, materials.terrainRoad, 0);
+  addTerrainPatch("terrain-patch-road-south-west", new Vector3(-7.3, 0.048, -5.2), 1.05, 10.4, Math.PI / 2 + 0.32, scene, materials.terrainRoad, 2);
 
   const obstacles = [
     makeObstacle("rock-west", new Vector3(-3.1, 0.28, -1.4), new Vector3(0.7, 0.35, 0.55), scene, materials),
@@ -301,8 +469,12 @@ export function createDioramaMap(scene: Scene, materials: CartoonMaterials): Dio
     ],
   }, obstacles, scene, materials);
 
-  addTree("tree-north-west", new Vector3(-4.8, 0, 2.7), scene, materials);
-  addTree("tree-south-east", new Vector3(4.9, 0, -2.8), scene, materials);
+  addTree("tree-north-west", new Vector3(-4.8, 0, 2.7), scene, materials, { scale: 1.05, yaw: 0.35, shape: "wide" });
+  addTree("tree-south-east", new Vector3(6.55, 0, -2.1), scene, materials, { scale: 0.95, yaw: -0.6, shape: "round" });
+  addTree("tree-village-grove-a", new Vector3(2.4, 0, -3.95), scene, materials, { scale: 0.82, yaw: 1.25, shape: "tall" });
+  addTree("tree-village-grove-b", new Vector3(7.4, 0, 4.9), scene, materials, { scale: 1.1, yaw: -1.05, shape: "round" });
+  addTree("tree-west-meadow", new Vector3(-8.35, 0, 0.85), scene, materials, { scale: 0.88, yaw: 2.1, shape: "tall" });
+  addTree("tree-south-meadow", new Vector3(-1.7, 0, -6.4), scene, materials, { scale: 1.18, yaw: 0.75, shape: "wide" });
 
   addPathTile("village-path-center", new Vector3(0, 0.02, 0.4), 1.0, 3.4, 0.1, scene, materials);
   addPathTile("village-path-north", new Vector3(-0.75, 0.021, 2.2), 0.85, 2.0, -0.35, scene, materials);

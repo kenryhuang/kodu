@@ -15,6 +15,13 @@ export function createMaterials(scene: Scene) {
     return material;
   };
 
+  const makeTransparent = (name: string, color: Color3, alpha: number): StandardMaterial => {
+    const material = make(name, color);
+    material.alpha = alpha;
+    material.specularColor = new Color3(0, 0, 0);
+    return material;
+  };
+
   const makeTextured = (
     name: string,
     fallbackColor: Color3,
@@ -47,6 +54,7 @@ export function createMaterials(scene: Scene) {
     texture.wrapV = Texture.WRAP_ADDRESSMODE;
     material.diffuseTexture = texture;
     material.diffuseColor = new Color3(1, 1, 1);
+    material.backFaceCulling = false;
     return material;
   };
 
@@ -132,6 +140,10 @@ export function createMaterials(scene: Scene) {
     fenceWood: make("mat-fence-wood", new Color3(0.57, 0.38, 0.21)),
     pathDirt: make("mat-path-dirt", new Color3(0.55, 0.4, 0.25)),
     treeTrunk: make("mat-tree-trunk", new Color3(0.48, 0.3, 0.18)),
+    treeBarkLight: make("mat-tree-bark-light", new Color3(0.68, 0.45, 0.25)),
     treeTop: make("mat-tree-top", new Color3(0.25, 0.58, 0.3)),
+    treeTopDark: make("mat-tree-top-dark", new Color3(0.16, 0.42, 0.22)),
+    treeTopLight: make("mat-tree-top-light", new Color3(0.47, 0.72, 0.34)),
+    treeShadow: makeTransparent("mat-tree-shadow", new Color3(0.12, 0.2, 0.12), 0.26),
   };
 }

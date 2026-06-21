@@ -20,9 +20,16 @@ type PlayerSnapshot = {
 
 type VillageSnapshot = {
   terrainGrounds: number;
-  terrainSandLayers: number;
-  terrainRoadLayers: number;
+  terrainSandPatches: number;
+  terrainRoadPatches: number;
+  terrainRectangularLayers: number;
+  terrainPatchMinVertices: number;
   terrainTextureMaterials: number;
+  treeTrunkBases: number;
+  treeRoots: number;
+  treeBranches: number;
+  treeCanopies: number;
+  treeLeafHighlights: number;
   houseBodies: number;
   houseRoofs: number;
   houseDoors: number;
@@ -141,7 +148,10 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
         gameScene?: {
           scene?: {
             materials: Array<{ name: string }>;
-            meshes: Array<{ name: string }>;
+            meshes: Array<{
+              name: string;
+              getTotalVertices(): number;
+            }>;
           };
           map?: {
             bounds: {
@@ -164,6 +174,9 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
     if (!scene || !map) throw new Error("Missing game scene or map");
     const names = scene.meshes.map((mesh) => mesh.name);
     const materialNames = scene.materials.map((material) => material.name);
+    const terrainPatchVertexCounts = scene.meshes
+      .filter((mesh) => mesh.name.startsWith("terrain-patch-"))
+      .map((mesh) => mesh.getTotalVertices());
     const houseObstacles = map.obstacles
       .filter((obstacle) => obstacle.name.startsWith("house-") && obstacle.name.endsWith("-body"))
       .map((obstacle) => ({
@@ -180,9 +193,16 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
       houseRoofOverhangs: names.filter((name) => name.startsWith("house-") && name.includes("-roof-overhang-")).length,
       houseRoofTiles: names.filter((name) => name.startsWith("house-") && name.includes("-roof-tile-")).length,
       terrainGrounds: names.filter((name) => name === "terrain-heightmap-ground").length,
-      terrainSandLayers: names.filter((name) => name.startsWith("terrain-sand-")).length,
-      terrainRoadLayers: names.filter((name) => name.startsWith("terrain-road-")).length,
+      terrainSandPatches: names.filter((name) => name.startsWith("terrain-patch-sand-")).length,
+      terrainRoadPatches: names.filter((name) => name.startsWith("terrain-patch-road-")).length,
+      terrainRectangularLayers: names.filter((name) => name.startsWith("terrain-sand-") || name.startsWith("terrain-road-")).length,
+      terrainPatchMinVertices: terrainPatchVertexCounts.length ? Math.min(...terrainPatchVertexCounts) : 0,
       terrainTextureMaterials: materialNames.filter((name) => name.startsWith("mat-terrain-")).length,
+      treeTrunkBases: names.filter((name) => name.startsWith("tree-") && name.endsWith("-trunk-base")).length,
+      treeRoots: names.filter((name) => name.startsWith("tree-") && name.includes("-root-")).length,
+      treeBranches: names.filter((name) => name.startsWith("tree-") && name.includes("-branch-")).length,
+      treeCanopies: names.filter((name) => name.startsWith("tree-") && name.includes("-canopy-")).length,
+      treeLeafHighlights: names.filter((name) => name.startsWith("tree-") && name.includes("-leaf-highlight-")).length,
       pathTiles: names.filter((name) => name.startsWith("village-path-")).length,
       fenceSegments: names.filter((name) => name.startsWith("fence-")).length,
       houseWallTextureMaterials: materialNames.filter((name) => name.startsWith("mat-house-wall-")).length,
@@ -510,9 +530,16 @@ test("renders village houses as tall blocking obstacles", async ({ page }) => {
 
   const village = await readVillageSnapshot(page);
   expect(village.terrainGrounds).toBe(1);
-  expect(village.terrainSandLayers).toBeGreaterThanOrEqual(2);
-  expect(village.terrainRoadLayers).toBeGreaterThanOrEqual(4);
+  expect(village.terrainSandPatches).toBeGreaterThanOrEqual(2);
+  expect(village.terrainRoadPatches).toBeGreaterThanOrEqual(4);
+  expect(village.terrainRectangularLayers).toBe(0);
+  expect(village.terrainPatchMinVertices).toBeGreaterThanOrEqual(9);
   expect(village.terrainTextureMaterials).toBeGreaterThanOrEqual(3);
+  expect(village.treeTrunkBases).toBeGreaterThanOrEqual(5);
+  expect(village.treeRoots).toBeGreaterThanOrEqual(15);
+  expect(village.treeBranches).toBeGreaterThanOrEqual(10);
+  expect(village.treeCanopies).toBeGreaterThanOrEqual(15);
+  expect(village.treeLeafHighlights).toBeGreaterThanOrEqual(5);
   expect(village.mapBounds.maxX - village.mapBounds.minX).toBeGreaterThanOrEqual(32);
   expect(village.mapBounds.maxZ - village.mapBounds.minZ).toBeGreaterThanOrEqual(24);
   expect(village.houseBodies).toBe(3);
