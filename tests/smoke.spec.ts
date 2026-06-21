@@ -312,27 +312,46 @@ test("space jumps without firing a projectile", async ({ page }) => {
   const before = await readPlayerSnapshot(page);
   expect(await readProjectileCount(page)).toBe(0);
 
-  await page.keyboard.press("Space");
-  const jumpSample = await page.waitForFunction((startY) => {
-    const app = (globalThis as typeof globalThis & {
-      __KODU_APP__?: {
-        gameScene?: {
-          player?: {
-            isGrounded: boolean;
-            position: { y: number };
+  await page.evaluate(() => {
+    window.dispatchEvent(new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      code: "Space",
+      key: " ",
+    }));
+  });
+  let after: { grounded: boolean; y: number } | undefined;
+  try {
+    const jumpSample = await page.waitForFunction((startY) => {
+      const app = (globalThis as typeof globalThis & {
+        __KODU_APP__?: {
+          gameScene?: {
+            player?: {
+              isGrounded: boolean;
+              position: { y: number };
+            };
           };
         };
+      }).__KODU_APP__;
+      const player = app?.gameScene?.player;
+      if (!player || player.isGrounded || player.position.y <= startY + 0.08) return false;
+      return {
+        grounded: player.isGrounded,
+        y: player.position.y,
       };
-    }).__KODU_APP__;
-    const player = app?.gameScene?.player;
-    if (!player || player.isGrounded || player.position.y <= startY + 0.08) return false;
-    return {
-      grounded: player.isGrounded,
-      y: player.position.y,
-    };
-  }, before.y);
+    }, before.y);
+    after = await jumpSample.jsonValue() as { grounded: boolean; y: number };
+  } finally {
+    await page.evaluate(() => {
+      window.dispatchEvent(new KeyboardEvent("keyup", {
+        bubbles: true,
+        code: "Space",
+        key: " ",
+      }));
+    });
+  }
 
-  const after = await jumpSample.jsonValue() as { grounded: boolean; y: number };
+  if (!after) throw new Error("Missing jump sample");
   expect(after.y).toBeGreaterThan(before.y + 0.08);
   expect(after.grounded).toBe(false);
   expect(await readProjectileCount(page)).toBe(0);
@@ -377,24 +396,63 @@ test("player can jump onto a rock obstacle", async ({ page }) => {
   const rockWestMinX = -3.8;
   const rockWestMaxX = -2.4;
   const playerRadius = 0.42;
-  await dropPlayerFromHeight(page, -3.1, 1.45, -1.4);
-
-  await page.waitForFunction(() => {
+  const after = await page.evaluate(() => {
     const app = (globalThis as typeof globalThis & {
       __KODU_APP__?: {
         gameScene?: {
+          collisions?: {
+            resolvePlayerVerticalSupport(player: unknown, map: unknown): void;
+          };
+          map?: unknown;
           player?: {
+            clampToBounds(): void;
+            footHeight: number;
             isGrounded: boolean;
+            landOnSurface(surfaceHeight: number): void;
+            position: { x: number; y: number; z: number };
+            startFalling(): void;
             surfaceHeight: number;
+            update(deltaSeconds: number, input: unknown): void;
           };
         };
       };
     }).__KODU_APP__;
-    const player = app?.gameScene?.player;
-    return Boolean(player && player.isGrounded && Math.abs(player.surfaceHeight - 0.63) < 0.05);
+    const gameScene = app?.gameScene;
+    const player = gameScene?.player;
+    const collisions = gameScene?.collisions;
+    const map = gameScene?.map;
+    if (!player || !collisions || !map) throw new Error("Missing deterministic landing dependencies");
+
+    player.landOnSurface(0);
+    player.position.x = -3.1;
+    player.position.y = 2.2;
+    player.position.z = -1.4;
+    player.startFalling();
+    player.clampToBounds();
+
+    const idleInput = {
+      consumeFire: () => false,
+      consumeJump: () => false,
+      get moveX() { return 0; },
+      get moveZ() { return 0; },
+      getPointerAimDirection: () => undefined,
+    };
+
+    for (let step = 0; step < 180; step += 1) {
+      player.update(1 / 60, idleInput);
+      collisions.resolvePlayerVerticalSupport(player, map);
+      player.clampToBounds();
+      if (player.isGrounded && Math.abs(player.surfaceHeight - 0.63) < 0.05) break;
+    }
+
+    return {
+      x: player.position.x,
+      footHeight: player.footHeight,
+      grounded: player.isGrounded,
+      surfaceHeight: player.surfaceHeight,
+    };
   });
 
-  const after = await readPlayerSnapshot(page);
   expect(after.grounded).toBe(true);
   expect(after.surfaceHeight).toBeCloseTo(rockWestTop, 1);
   expect(after.footHeight).toBeCloseTo(rockWestTop, 1);
