@@ -21,6 +21,7 @@ type PlayerSnapshot = {
 type VillageSnapshot = {
   terrainGrounds: number;
   terrainSandPatches: number;
+  terrainMeadowPatches: number;
   terrainRoadPatches: number;
   terrainMainRoads: number;
   terrainMainRoadVertices: number;
@@ -33,15 +34,22 @@ type VillageSnapshot = {
   terrainRoadSpurs: number;
   terrainRectangularLayers: number;
   terrainPatchMinVertices: number;
+  terrainSandPatchMinVertices: number;
+  terrainSandTextureSource: string | null;
   terrainTextureMaterials: number;
   terrainAlphaBlendMaterials: number;
   terrainRepeatedAlphaMaterials: number;
+  textureReliefMaterials: number;
+  conceptAtlasTextureMaterials: number;
+  conceptAtlasCoreMaterials: number;
+  conceptTileCoreMaterials: number;
   vegetationAlphaMaterials: number;
   treeTrunkBases: number;
   treeRoots: number;
   treeBranches: number;
   treeCanopies: number;
   treeLeafCards: number;
+  treeLeafSprigs: number;
   treeLeafVolumes: number;
   treeLeafVolumeVertices: number;
   treeLeafShells: number;
@@ -49,8 +57,18 @@ type VillageSnapshot = {
   treeFoliageAlphaTestMaterials: number;
   treeFoliageAlphaBlendMaterials: number;
   treeLeafHighlights: number;
+  extraFoliageShells: number;
   grassCards: number;
   bushCards: number;
+  groundDetailClumps: number;
+  wildflowerCards: number;
+  pebbleMeshes: number;
+  treeBaseClutter: number;
+  shadowGenerators: number;
+  shadowCasters: number;
+  shadowReceivers: number;
+  skyLightIntensity: number;
+  sunLightIntensity: number;
   houseBodies: number;
   houseRoofs: number;
   houseDoors: number;
@@ -59,13 +77,40 @@ type VillageSnapshot = {
   houseChimneys: number;
   houseRoofOverhangs: number;
   houseRoofTiles: number;
+  houseFoundationStones: number;
+  houseWallWeathering: number;
+  houseRoofBattens: number;
+  houseRoofMoss: number;
+  houseDoorHardware: number;
+  stoneClusterPieces: number;
+  treeBarkRidges: number;
+  treeLeafDepthCards: number;
   pathTiles: number;
   fenceSegments: number;
   houseWallTextureMaterials: number;
   houseRoofTextureMaterials: number;
+  terrainGrassDiffuse: {
+    r: number;
+    g: number;
+    b: number;
+  } | null;
+  terrainRoadDiffuse: {
+    r: number;
+    g: number;
+    b: number;
+  } | null;
+  pathDirtDiffuse: {
+    r: number;
+    g: number;
+    b: number;
+  } | null;
   houseObstacles: Array<{
     name: string;
     topHeight: number;
+  }>;
+  houseRoadClearances: Array<{
+    name: string;
+    clearance: number;
   }>;
   mapBounds: {
     minX: number;
@@ -168,11 +213,30 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
       __KODU_APP__?: {
         gameScene?: {
           scene?: {
+            lights?: Array<{
+              name?: string;
+              intensity?: number;
+              getShadowGenerator?: () => {
+                getShadowMap?: () => {
+                  renderList?: unknown[];
+                } | null;
+              } | null;
+            }>;
             materials: Array<{
               name: string;
               transparencyMode?: number | null;
               useAlphaFromDiffuseTexture?: boolean;
               needAlphaTesting?: () => boolean;
+              bumpTexture?: unknown;
+              diffuseTexture?: {
+                name?: string;
+                url?: string;
+              } | null;
+              diffuseColor?: {
+                r: number;
+                g: number;
+                b: number;
+              };
             }>;
             meshes: Array<{
               name: string;
@@ -183,6 +247,7 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
                 };
               };
               getTotalVertices(): number;
+              receiveShadows?: boolean;
             }>;
           };
           map?: {
@@ -194,8 +259,8 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
             };
             obstacles: Array<{
               name: string;
-              center: { y: number };
-              halfExtents: { y: number };
+              center: { x: number; y: number; z: number };
+              halfExtents: { x: number; y: number; z: number };
             }>;
           };
         };
@@ -206,6 +271,62 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
     if (!scene || !map) throw new Error("Missing game scene or map");
     const names = scene.meshes.map((mesh) => mesh.name);
     const materialNames = scene.materials.map((material) => material.name);
+    const terrainGrassMaterial = scene.materials.find((material) => material.name === "mat-terrain-grass");
+    const terrainRoadMaterial = scene.materials.find((material) => material.name === "mat-terrain-road");
+    const terrainSandMaterial = scene.materials.find((material) => material.name === "mat-terrain-sand");
+    const pathDirtMaterial = scene.materials.find((material) => material.name === "mat-path-dirt");
+    const textureReliefMaterials = scene.materials.filter((material) => (
+      Boolean(material.bumpTexture)
+      && (
+        material.name.startsWith("mat-terrain-")
+        || material.name.startsWith("mat-house-")
+        || material.name.startsWith("mat-tree-")
+        || material.name.startsWith("mat-fence-")
+        || material.name.startsWith("mat-stone")
+        || material.name.startsWith("mat-pebble")
+      )
+    ));
+    const conceptAtlasTextureMaterials = scene.materials.filter((material) => {
+      const texture = material.diffuseTexture;
+      return Boolean(
+        texture?.name?.includes("concept-material-atlas")
+        || texture?.url?.includes("concept-material-atlas"),
+      );
+    });
+    const coreAtlasMaterialNames = new Set([
+      "mat-terrain-grass",
+      "mat-terrain-road",
+      "mat-terrain-sand",
+      "mat-stone",
+      "mat-house-wall-cream",
+      "mat-house-wall-mint",
+      "mat-house-wall-clay",
+      "mat-house-roof-red",
+      "mat-house-roof-teal",
+      "mat-house-roof-violet",
+      "mat-house-trim",
+      "mat-house-door",
+      "mat-house-window",
+      "mat-house-chimney",
+      "mat-house-foundation-stone",
+      "mat-fence-wood",
+      "mat-tree-bark",
+      "mat-tree-bark-ridge",
+    ]);
+    const conceptAtlasCoreMaterials = conceptAtlasTextureMaterials.filter((material) => (
+      coreAtlasMaterialNames.has(material.name)
+    ));
+    const conceptTileCoreMaterials = scene.materials.filter((material) => {
+      const texture = material.diffuseTexture;
+      const source = `${texture?.name ?? ""} ${texture?.url ?? ""}`;
+      return coreAtlasMaterialNames.has(material.name) && source.includes("/assets/textures/concept/");
+    });
+    const shadowMaps = (scene.lights ?? [])
+      .map((light) => light.getShadowGenerator?.()?.getShadowMap?.())
+      .filter((shadowMap): shadowMap is { renderList?: unknown[] } => Boolean(shadowMap));
+    const shadowCasters = shadowMaps.reduce((sum, shadowMap) => sum + (shadowMap.renderList?.length ?? 0), 0);
+    const skyLightIntensity = scene.lights?.find((light) => light.name === "sky-light")?.intensity ?? 0;
+    const sunLightIntensity = scene.lights?.find((light) => light.name === "sun-light")?.intensity ?? 0;
     const mainRoad = scene.meshes.find((mesh) => mesh.name === "terrain-road-main");
     const mainRoadBox = mainRoad?.getBoundingInfo().boundingBox;
     const blendedTerrainMaterials = scene.materials.filter((material) => (
@@ -248,12 +369,58 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
     const terrainPatchVertexCounts = scene.meshes
       .filter((mesh) => mesh.name.startsWith("terrain-patch-"))
       .map((mesh) => mesh.getTotalVertices());
+    const terrainSandPatchVertexCounts = scene.meshes
+      .filter((mesh) => mesh.name.startsWith("terrain-patch-sand-"))
+      .map((mesh) => mesh.getTotalVertices());
     const houseObstacles = map.obstacles
       .filter((obstacle) => obstacle.name.startsWith("house-") && obstacle.name.endsWith("-body"))
       .map((obstacle) => ({
         name: obstacle.name,
         topHeight: obstacle.center.y + obstacle.halfExtents.y,
       }));
+    const mainRoadRoute = [
+      { x: -17.4, z: -11.4, width: 1.28 },
+      { x: -11.2, z: -6.6, width: 1.42 },
+      { x: -5.6, z: -2.8, width: 1.18 },
+      { x: -0.8, z: 0.35, width: 1.52 },
+      { x: 4.8, z: 2.0, width: 1.34 },
+      { x: 10.2, z: 5.8, width: 1.18 },
+      { x: 17.4, z: 10.6, width: 1.42 },
+    ];
+    const distanceToSegment = (x: number, z: number, ax: number, az: number, bx: number, bz: number): number => {
+      const vx = bx - ax;
+      const vz = bz - az;
+      const wx = x - ax;
+      const wz = z - az;
+      const lengthSq = vx * vx + vz * vz || 1;
+      const t = Math.max(0, Math.min(1, (wx * vx + wz * vz) / lengthSq));
+      const px = ax + vx * t;
+      const pz = az + vz * t;
+      return Math.hypot(x - px, z - pz);
+    };
+    const houseRoadClearances = map.obstacles
+      .filter((obstacle) => obstacle.name.startsWith("house-") && obstacle.name.endsWith("-body"))
+      .map((obstacle) => {
+        let clearance = Number.POSITIVE_INFINITY;
+        for (let index = 0; index < mainRoadRoute.length - 1; index += 1) {
+          const a = mainRoadRoute[index];
+          const b = mainRoadRoute[index + 1];
+          const segmentDistance = distanceToSegment(obstacle.center.x, obstacle.center.z, a.x, a.z, b.x, b.z);
+          const roadRadius = Math.max(a.width, b.width) * 0.5;
+          const houseRadius = Math.hypot(obstacle.halfExtents.x, obstacle.halfExtents.z);
+          clearance = Math.min(clearance, segmentDistance - roadRadius - houseRadius);
+        }
+        return { name: obstacle.name, clearance };
+      });
+    const colorSnapshot = (material: { diffuseColor?: { r: number; g: number; b: number } } | undefined) => (
+      material?.diffuseColor
+        ? {
+            r: material.diffuseColor.r,
+            g: material.diffuseColor.g,
+            b: material.diffuseColor.b,
+          }
+        : null
+    );
     return {
       houseBodies: names.filter((name) => name.startsWith("house-") && name.endsWith("-body")).length,
       houseRoofs: names.filter((name) => name.startsWith("house-") && name.endsWith("-roof")).length,
@@ -263,8 +430,17 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
       houseChimneys: names.filter((name) => name.startsWith("house-") && name.endsWith("-chimney")).length,
       houseRoofOverhangs: names.filter((name) => name.startsWith("house-") && name.includes("-roof-overhang-")).length,
       houseRoofTiles: names.filter((name) => name.startsWith("house-") && name.includes("-roof-tile-")).length,
+      houseFoundationStones: names.filter((name) => name.startsWith("house-foundation-stone-")).length,
+      houseWallWeathering: names.filter((name) => name.startsWith("house-wall-weathering-")).length,
+      houseRoofBattens: names.filter((name) => name.startsWith("house-roof-batten-")).length,
+      houseRoofMoss: names.filter((name) => name.startsWith("house-roof-moss-")).length,
+      houseDoorHardware: names.filter((name) => name.startsWith("house-door-hardware-")).length,
+      stoneClusterPieces: names.filter((name) => name.startsWith("stone-cluster-piece-")).length,
+      treeBarkRidges: names.filter((name) => name.startsWith("tree-bark-ridge-")).length,
+      treeLeafDepthCards: names.filter((name) => name.startsWith("tree-leaf-depth-card-")).length,
       terrainGrounds: names.filter((name) => name === "terrain-heightmap-ground").length,
       terrainSandPatches: names.filter((name) => name.startsWith("terrain-patch-sand-")).length,
+      terrainMeadowPatches: names.filter((name) => name.startsWith("terrain-patch-meadow-")).length,
       terrainRoadPatches: names.filter((name) => name.startsWith("terrain-patch-road-")).length,
       terrainMainRoads: names.filter((name) => name === "terrain-road-main").length,
       terrainMainRoadVertices: mainRoad?.getTotalVertices() ?? 0,
@@ -280,15 +456,24 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
         || (name.startsWith("terrain-road-") && name !== "terrain-road-main" && !name.startsWith("terrain-road-spur-"))
       )).length,
       terrainPatchMinVertices: terrainPatchVertexCounts.length ? Math.min(...terrainPatchVertexCounts) : 0,
+      terrainSandPatchMinVertices: terrainSandPatchVertexCounts.length ? Math.min(...terrainSandPatchVertexCounts) : 0,
+      terrainSandTextureSource: terrainSandMaterial
+        ? `${terrainSandMaterial.diffuseTexture?.name ?? ""} ${terrainSandMaterial.diffuseTexture?.url ?? ""}`
+        : null,
       terrainTextureMaterials: materialNames.filter((name) => name.startsWith("mat-terrain-")).length,
       terrainAlphaBlendMaterials: blendedTerrainMaterials.length,
       terrainRepeatedAlphaMaterials: repeatedAlphaMaterials.length,
+      textureReliefMaterials: textureReliefMaterials.length,
+      conceptAtlasTextureMaterials: conceptAtlasTextureMaterials.length,
+      conceptAtlasCoreMaterials: conceptAtlasCoreMaterials.length,
+      conceptTileCoreMaterials: conceptTileCoreMaterials.length,
       vegetationAlphaMaterials: vegetationAlphaMaterials.length,
       treeTrunkBases: names.filter((name) => name.startsWith("tree-") && name.endsWith("-trunk-base")).length,
       treeRoots: names.filter((name) => name.startsWith("tree-") && name.includes("-root-")).length,
       treeBranches: names.filter((name) => name.startsWith("tree-") && name.includes("-branch-")).length,
       treeCanopies: names.filter((name) => name.startsWith("tree-") && name.includes("-canopy-")).length,
       treeLeafCards: names.filter((name) => name.startsWith("tree-") && name.includes("-leaf-card-")).length,
+      treeLeafSprigs: names.filter((name) => name.startsWith("tree-leaf-sprig-")).length,
       treeLeafVolumes: treeLeafVolumeMeshes.length,
       treeLeafVolumeVertices: treeLeafVolumeMeshes.reduce((sum, mesh) => sum + mesh.getTotalVertices(), 0),
       treeLeafShells: names.filter((name) => name.startsWith("tree-") && name.includes("-leaf-shell-")).length,
@@ -296,13 +481,27 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
       treeFoliageAlphaTestMaterials: treeFoliageAlphaTestMaterials.length,
       treeFoliageAlphaBlendMaterials: treeFoliageAlphaBlendMaterials.length,
       treeLeafHighlights: names.filter((name) => name.startsWith("tree-") && name.includes("-leaf-highlight-")).length,
+      extraFoliageShells: names.filter((name) => name.startsWith("tree-") && name.includes("-extra-foliage-shell-")).length,
       grassCards: names.filter((name) => name.startsWith("grass-card-")).length,
       bushCards: names.filter((name) => name.startsWith("bush-card-")).length,
+      groundDetailClumps: names.filter((name) => name.startsWith("ground-detail-clump-")).length,
+      wildflowerCards: names.filter((name) => name.startsWith("wildflower-card-")).length,
+      pebbleMeshes: names.filter((name) => name.startsWith("pebble-detail-")).length,
+      treeBaseClutter: names.filter((name) => name.startsWith("tree-base-clutter-")).length,
+      shadowGenerators: shadowMaps.length,
+      shadowCasters,
+      shadowReceivers: scene.meshes.filter((mesh) => mesh.receiveShadows).length,
+      skyLightIntensity,
+      sunLightIntensity,
       pathTiles: names.filter((name) => name.startsWith("village-path-")).length,
       fenceSegments: names.filter((name) => name.startsWith("fence-")).length,
       houseWallTextureMaterials: materialNames.filter((name) => name.startsWith("mat-house-wall-")).length,
       houseRoofTextureMaterials: materialNames.filter((name) => name.startsWith("mat-house-roof-")).length,
+      terrainGrassDiffuse: colorSnapshot(terrainGrassMaterial),
+      terrainRoadDiffuse: colorSnapshot(terrainRoadMaterial),
+      pathDirtDiffuse: colorSnapshot(pathDirtMaterial),
       houseObstacles,
+      houseRoadClearances,
       mapBounds: map.bounds,
     };
   });
@@ -440,6 +639,7 @@ test("terrain image assets are served", async ({ page }) => {
   const assets = [
     "/assets/terrain/heightmap-valley.png",
     "/assets/terrain/grass.png",
+    "/assets/terrain/meadow.png",
     "/assets/terrain/sand.png",
     "/assets/terrain/road.png",
     "/assets/vegetation/tree-leaves.png",
@@ -447,6 +647,31 @@ test("terrain image assets are served", async ({ page }) => {
     "/assets/vegetation/tree-bark.png",
     "/assets/vegetation/bush.png",
     "/assets/vegetation/grass-card.png",
+    "/assets/textures/stone.png",
+    "/assets/textures/weathered-wood.png",
+    "/assets/textures/roof-tiles-red.png",
+    "/assets/textures/roof-tiles-teal.png",
+    "/assets/textures/roof-tiles-violet.png",
+    "/assets/textures/plaster-warm.png",
+    "/assets/textures/plaster-sage.png",
+    "/assets/textures/plaster-clay.png",
+    "/assets/textures/trim-aged.png",
+    "/assets/textures/door-wood.png",
+    "/assets/textures/window-glass.png",
+    "/assets/textures/concept-material-atlas.png",
+    "/assets/textures/concept/grass.png",
+    "/assets/textures/concept/dirt-road.png",
+    "/assets/textures/concept/plaster-warm.png",
+    "/assets/textures/concept/weathered-wood.png",
+    "/assets/textures/concept/roof-red.png",
+    "/assets/textures/concept/stone-masonry.png",
+    "/assets/textures/concept/bark.png",
+    "/assets/textures/concept/window-glass.png",
+    "/assets/textures/concept/plaster-clay.png",
+    "/assets/textures/concept/roof-teal.png",
+    "/assets/textures/concept/pebbles.png",
+    "/assets/textures/concept/trim-wood.png",
+    "/assets/textures/concept/dark-dirt.png",
   ];
   for (const asset of assets) {
     const response = await page.request.get(asset);
@@ -627,6 +852,7 @@ test("renders village houses as tall blocking obstacles", async ({ page }) => {
   const village = await readVillageSnapshot(page);
   expect(village.terrainGrounds).toBe(1);
   expect(village.terrainSandPatches).toBeGreaterThanOrEqual(2);
+  expect(village.terrainMeadowPatches).toBeGreaterThanOrEqual(4);
   expect(village.terrainRoadPatches).toBe(0);
   expect(village.terrainMainRoads).toBe(1);
   expect(village.terrainMainRoadVertices).toBeGreaterThanOrEqual(80);
@@ -638,23 +864,55 @@ test("renders village houses as tall blocking obstacles", async ({ page }) => {
   expect(village.terrainRoadSpurs).toBeGreaterThanOrEqual(3);
   expect(village.terrainRectangularLayers).toBe(0);
   expect(village.terrainPatchMinVertices).toBeGreaterThanOrEqual(9);
+  expect(village.terrainSandPatchMinVertices).toBeGreaterThanOrEqual(42);
+  expect(village.terrainSandTextureSource).toContain("/assets/terrain/sand.png");
   expect(village.terrainTextureMaterials).toBeGreaterThanOrEqual(3);
   expect(village.terrainAlphaBlendMaterials).toBeGreaterThanOrEqual(3);
-  expect(village.terrainRepeatedAlphaMaterials).toBe(0);
+  expect(village.terrainRepeatedAlphaMaterials).toBeGreaterThanOrEqual(2);
+  expect(village.terrainGrassDiffuse).not.toBeNull();
+  expect(village.terrainGrassDiffuse!.r).toBeGreaterThanOrEqual(1.2);
+  expect(village.terrainGrassDiffuse!.g).toBeGreaterThanOrEqual(1.24);
+  expect(village.terrainGrassDiffuse!.b).toBeGreaterThanOrEqual(0.96);
+  expect(village.terrainRoadDiffuse).not.toBeNull();
+  expect(village.terrainRoadDiffuse!.r).toBeGreaterThanOrEqual(1.08);
+  expect(village.terrainRoadDiffuse!.g).toBeGreaterThanOrEqual(0.82);
+  expect(village.terrainRoadDiffuse!.b).toBeLessThanOrEqual(0.72);
+  expect(village.pathDirtDiffuse).not.toBeNull();
+  expect(village.pathDirtDiffuse!.r).toBeGreaterThanOrEqual(1.05);
+  expect(village.pathDirtDiffuse!.g).toBeGreaterThanOrEqual(0.78);
+  expect(village.pathDirtDiffuse!.b).toBeLessThanOrEqual(0.7);
+  expect(village.textureReliefMaterials).toBeGreaterThanOrEqual(9);
+  expect(village.conceptAtlasTextureMaterials).toBeGreaterThanOrEqual(3);
+  expect(village.conceptAtlasCoreMaterials).toBeLessThanOrEqual(3);
+  expect(village.conceptTileCoreMaterials).toBeGreaterThanOrEqual(12);
   expect(village.vegetationAlphaMaterials).toBeGreaterThanOrEqual(3);
   expect(village.treeTrunkBases).toBeGreaterThanOrEqual(5);
   expect(village.treeRoots).toBeGreaterThanOrEqual(15);
   expect(village.treeBranches).toBeGreaterThanOrEqual(10);
   expect(village.treeCanopies).toBe(0);
-  expect(village.treeLeafCards).toBeLessThanOrEqual(12);
-  expect(village.treeLeafVolumes).toBeGreaterThanOrEqual(24);
-  expect(village.treeLeafVolumeVertices).toBeGreaterThanOrEqual(480);
-  expect(village.treeLeafShells).toBeGreaterThanOrEqual(18);
-  expect(village.treeStyleVariants).toBeGreaterThanOrEqual(3);
+  expect(village.treeLeafCards).toBe(0);
+  expect(village.treeLeafSprigs).toBeGreaterThanOrEqual(190);
+  expect(village.treeLeafVolumes).toBe(0);
+  expect(village.treeLeafVolumeVertices).toBe(0);
+  expect(village.treeLeafShells).toBe(0);
+  expect(village.treeStyleVariants).toBe(0);
   expect(village.treeFoliageAlphaTestMaterials).toBeGreaterThanOrEqual(2);
   expect(village.treeFoliageAlphaBlendMaterials).toBe(0);
-  expect(village.grassCards).toBeGreaterThanOrEqual(18);
+  expect(village.extraFoliageShells).toBe(0);
+  expect(village.grassCards).toBeGreaterThanOrEqual(12);
   expect(village.bushCards).toBeGreaterThanOrEqual(8);
+  expect(village.groundDetailClumps).toBeGreaterThanOrEqual(24);
+  expect(village.groundDetailClumps).toBeLessThanOrEqual(34);
+  expect(village.wildflowerCards).toBeGreaterThanOrEqual(12);
+  expect(village.wildflowerCards).toBeLessThanOrEqual(18);
+  expect(village.pebbleMeshes).toBeGreaterThanOrEqual(12);
+  expect(village.pebbleMeshes).toBeLessThanOrEqual(18);
+  expect(village.treeBaseClutter).toBeGreaterThanOrEqual(8);
+  expect(village.shadowGenerators).toBeGreaterThanOrEqual(1);
+  expect(village.shadowCasters).toBeGreaterThanOrEqual(20);
+  expect(village.shadowReceivers).toBeGreaterThanOrEqual(8);
+  expect(village.skyLightIntensity).toBeGreaterThanOrEqual(0.82);
+  expect(village.sunLightIntensity).toBeGreaterThanOrEqual(1);
   expect(village.mapBounds.maxX - village.mapBounds.minX).toBeGreaterThanOrEqual(32);
   expect(village.mapBounds.maxZ - village.mapBounds.minZ).toBeGreaterThanOrEqual(24);
   expect(village.houseBodies).toBe(3);
@@ -664,12 +922,24 @@ test("renders village houses as tall blocking obstacles", async ({ page }) => {
   expect(village.houseWindowFrames).toBeGreaterThanOrEqual(6);
   expect(village.houseChimneys).toBe(3);
   expect(village.houseRoofOverhangs).toBeGreaterThanOrEqual(6);
-  expect(village.houseRoofTiles).toBeGreaterThanOrEqual(12);
+  expect(village.houseRoofTiles).toBeLessThanOrEqual(8);
+  expect(village.houseFoundationStones).toBeLessThanOrEqual(12);
+  expect(village.houseWallWeathering).toBe(0);
+  expect(village.houseRoofBattens).toBeLessThanOrEqual(9);
+  expect(village.houseRoofMoss).toBe(0);
+  expect(village.houseDoorHardware).toBeLessThanOrEqual(6);
+  expect(village.stoneClusterPieces).toBeGreaterThanOrEqual(10);
+  expect(village.treeBarkRidges).toBeGreaterThanOrEqual(18);
+  expect(village.treeLeafDepthCards).toBe(0);
   expect(village.houseWallTextureMaterials).toBeGreaterThanOrEqual(3);
   expect(village.houseRoofTextureMaterials).toBeGreaterThanOrEqual(3);
   expect(village.pathTiles).toBe(0);
   expect(village.fenceSegments).toBeGreaterThanOrEqual(4);
   expect(village.houseObstacles).toHaveLength(3);
+  expect(village.houseRoadClearances).toHaveLength(3);
+  for (const house of village.houseRoadClearances) {
+    expect(house.clearance, `${house.name} should sit beside the main road`).toBeGreaterThan(0.28);
+  }
   for (const obstacle of village.houseObstacles) {
     expect(obstacle.topHeight).toBeGreaterThan(1.8);
   }

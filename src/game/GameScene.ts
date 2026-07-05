@@ -1,6 +1,8 @@
-import { Color4 } from "@babylonjs/core/Maths/math.color";
+import { Color3, Color4 } from "@babylonjs/core/Maths/math.color";
 import { Engine } from "@babylonjs/core/Engines/engine";
+import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
+import { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGenerator";
 import { Scene } from "@babylonjs/core/scene";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { InputManager } from "./input/InputManager";
@@ -33,11 +35,16 @@ export class GameScene {
     private readonly canvas: HTMLCanvasElement,
   ) {
     this.scene = new Scene(engine);
-    this.scene.clearColor = new Color4(0.58, 0.82, 0.92, 1);
+    this.scene.clearColor = new Color4(0.53, 0.68, 0.72, 1);
   }
 
   async init(): Promise<void> {
-    new HemisphericLight("sky-light", new Vector3(0.2, 1, 0.3), this.scene).intensity = 0.82;
+    const skyLight = new HemisphericLight("sky-light", new Vector3(0.2, 1, 0.3), this.scene);
+    skyLight.intensity = 0.9;
+    skyLight.groundColor = new Color3(0.44, 0.46, 0.38);
+    const sunLight = new DirectionalLight("sun-light", new Vector3(-0.55, -1, 0.45), this.scene);
+    sunLight.position = new Vector3(7, 12, -8);
+    sunLight.intensity = 1.08;
     this.materials = createMaterials(this.scene);
     this.map = createDioramaMap(this.scene, this.materials);
     this.cameraRig = new CameraRig(this.scene);
@@ -46,12 +53,57 @@ export class GameScene {
     this.npcs = new NpcSystem(this.scene, this.materials);
     this.projectiles = new ProjectileSystem(this.scene, this.materials);
     this.collisions = new CollisionSystem();
+    this.configureShadows(sunLight);
     const hudRoot = document.querySelector<HTMLDivElement>("#hud-root");
     if (!hudRoot) throw new Error("Missing #hud-root element.");
     this.hud = new Hud(hudRoot);
     this.debugTools = new DebugTools(this.scene);
     this.cameraRig.setTarget(this.player.position);
     this.canvas.focus();
+  }
+
+  private configureShadows(sunLight: DirectionalLight): void {
+    const shadowGenerator = new ShadowGenerator(1024, sunLight);
+    shadowGenerator.useBlurExponentialShadowMap = true;
+    shadowGenerator.blurKernel = 18;
+    shadowGenerator.setDarkness(0.2);
+
+    for (const mesh of this.scene.meshes) {
+      if (this.receivesSceneShadows(mesh.name)) {
+        mesh.receiveShadows = true;
+      }
+      if (this.castsSceneShadows(mesh.name)) {
+        shadowGenerator.addShadowCaster(mesh, true);
+      }
+    }
+  }
+
+  private receivesSceneShadows(meshName: string): boolean {
+    return (
+      meshName.startsWith("terrain-")
+      || meshName.startsWith("house-")
+      || meshName.startsWith("rock-")
+      || meshName.startsWith("pebble-detail-")
+    );
+  }
+
+  private castsSceneShadows(meshName: string): boolean {
+    if (meshName === "map-dark-edge") return false;
+    if (meshName.endsWith("-shadow")) return false;
+    if (meshName.startsWith("terrain-")) return false;
+    if (meshName.startsWith("grass-card-")) return false;
+    if (meshName.startsWith("ground-detail-clump-")) return false;
+    if (meshName.startsWith("wildflower-card-")) return false;
+    if (meshName.startsWith("bush-card-")) return false;
+    return (
+      meshName === "player"
+      || meshName.startsWith("npc-")
+      || meshName.startsWith("house-")
+      || meshName.startsWith("tree-")
+      || meshName.startsWith("rock-")
+      || meshName.startsWith("fence-")
+      || meshName.startsWith("pebble-detail-")
+    );
   }
 
   update(deltaSeconds: number): void {

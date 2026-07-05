@@ -18,6 +18,61 @@ function makeObstacle(name: string, center: Vector3, halfExtents: Vector3, scene
   return { name, center, halfExtents, mesh };
 }
 
+function makeRockObstacle(name: string, center: Vector3, halfExtents: Vector3, scene: Scene, materials: CartoonMaterials, seed: number): Obstacle {
+  const hx = halfExtents.x;
+  const hy = halfExtents.y;
+  const hz = halfExtents.z;
+  const wobble = (index: number, amount: number) => Math.sin(seed * 12.9898 + index * 78.233) * amount;
+  const positions = [
+    -hx * (0.92 + wobble(1, 0.08)), -hy, -hz * (0.86 + wobble(2, 0.09)),
+    hx * (0.82 + wobble(3, 0.08)), -hy * 0.9, -hz * (0.94 + wobble(4, 0.08)),
+    hx * (0.98 + wobble(5, 0.06)), -hy, hz * (0.82 + wobble(6, 0.08)),
+    -hx * (0.84 + wobble(7, 0.08)), -hy * 0.86, hz * (0.96 + wobble(8, 0.06)),
+    -hx * (0.68 + wobble(9, 0.08)), hy * (0.76 + wobble(10, 0.04)), -hz * (0.62 + wobble(11, 0.08)),
+    hx * (0.58 + wobble(12, 0.08)), hy * (0.92 + wobble(13, 0.04)), -hz * (0.7 + wobble(14, 0.08)),
+    hx * (0.72 + wobble(15, 0.06)), hy * (0.7 + wobble(16, 0.06)), hz * (0.58 + wobble(17, 0.08)),
+    -hx * (0.62 + wobble(18, 0.08)), hy * (0.84 + wobble(19, 0.05)), hz * (0.66 + wobble(20, 0.08)),
+    wobble(21, hx * 0.12), hy * 1.08, wobble(22, hz * 0.12),
+  ];
+  const indices = [
+    0, 1, 2, 0, 2, 3,
+    0, 4, 5, 0, 5, 1,
+    1, 5, 6, 1, 6, 2,
+    2, 6, 7, 2, 7, 3,
+    3, 7, 4, 3, 4, 0,
+    4, 8, 5,
+    5, 8, 6,
+    6, 8, 7,
+    7, 8, 4,
+  ];
+  for (let index = 0; index < indices.length; index += 3) {
+    const swap = indices[index + 1];
+    indices[index + 1] = indices[index + 2];
+    indices[index + 2] = swap;
+  }
+  const uvs: number[] = [];
+  for (let index = 0; index < positions.length; index += 3) {
+    uvs.push(
+      0.5 + positions[index] / (hx * 2.25) + seed * 0.07,
+      0.5 + positions[index + 2] / (hz * 2.25) + seed * 0.05,
+    );
+  }
+  const normals = new Array<number>(positions.length).fill(0);
+  VertexData.ComputeNormals(positions, indices, normals);
+
+  const mesh = new Mesh(name, scene);
+  const vertexData = new VertexData();
+  vertexData.positions = positions;
+  vertexData.indices = indices;
+  vertexData.normals = normals;
+  vertexData.uvs = uvs;
+  vertexData.applyToMesh(mesh);
+  mesh.position.copyFrom(center);
+  mesh.material = materials.stone;
+  mesh.convertToFlatShadedMesh();
+  return { name, center, halfExtents, mesh };
+}
+
 type HouseFace = "front" | "left" | "right";
 
 type HouseWindow = {
@@ -204,6 +259,29 @@ function addCrossCards(
   addVegetationCard(`${prefix}-1`, position, width * 0.94, height * 0.98, yaw + Math.PI / 2, material, scene);
 }
 
+function addLeafSprig(
+  prefix: string,
+  position: Vector3,
+  width: number,
+  height: number,
+  yaw: number,
+  material: StandardMaterial,
+  scene: Scene,
+  pitch = 0,
+): void {
+  addVegetationCard(`${prefix}-front`, position, width, height, yaw, material, scene, pitch);
+  addVegetationCard(
+    `${prefix}-side`,
+    position.add(new Vector3(0, height * 0.04, 0)),
+    width * 0.86,
+    height * 0.92,
+    yaw + Math.PI / 2,
+    material,
+    scene,
+    -pitch * 0.75,
+  );
+}
+
 function addLeafVolume(
   name: string,
   position: Vector3,
@@ -345,6 +423,125 @@ function addWindow(
   addFaceDetail(`${name}-window-frame-${window.id}-right`, window.face, center, halfExtents, yaw, window.along + window.width * 0.5 + frame * 0.5, window.bottom, frame, window.height, 0.06, materials.houseTrim, scene);
 }
 
+function addHouseFoundationStones(
+  name: string,
+  center: Vector3,
+  halfExtents: Vector3,
+  yaw: number,
+  scene: Scene,
+  materials: CartoonMaterials,
+): void {
+  const addCourse = (face: HouseFace, count: number, span: number): void => {
+    for (let index = 0; index < count; index += 1) {
+      const normalized = (index + 0.5) / count - 0.5;
+      const width = (span / count) * (0.78 + (index % 2) * 0.08);
+      const height = 0.14 + (index % 3) * 0.018;
+      addFaceDetail(
+        `house-foundation-stone-${name}-${face}-${index}`,
+        face,
+        center,
+        halfExtents,
+        yaw,
+        normalized * span,
+        0.02,
+        width,
+        height,
+        0.075,
+        materials.houseFoundationStone,
+        scene,
+      );
+    }
+  };
+
+  addCourse("front", 5, halfExtents.x * 1.82);
+  addCourse("left", 4, halfExtents.z * 1.72);
+  addCourse("right", 4, halfExtents.z * 1.72);
+}
+
+function addHouseWallWeathering(
+  name: string,
+  center: Vector3,
+  halfExtents: Vector3,
+  yaw: number,
+  scene: Scene,
+  materials: CartoonMaterials,
+): void {
+  const panels = [
+    ["front", -0.44, 1.48, 0.34, 0.18],
+    ["front", 0.46, 0.18, 0.42, 0.12],
+    ["left", -0.18, 1.38, 0.3, 0.18],
+    ["right", 0.22, 0.2, 0.36, 0.14],
+  ] as const;
+
+  panels.forEach(([face, along, bottom, width, height], index) => {
+    addFaceDetail(
+      `house-wall-weathering-${name}-${index}`,
+      face,
+      center,
+      halfExtents,
+      yaw,
+      along,
+      bottom,
+      width,
+      height,
+      0.035,
+      materials.houseWeathering,
+      scene,
+    );
+  });
+}
+
+function addHouseRoofMaterialDetails(
+  name: string,
+  center: Vector3,
+  halfExtents: Vector3,
+  yaw: number,
+  style: HouseStyle,
+  scene: Scene,
+  materials: CartoonMaterials,
+): void {
+  const battenRows = Math.max(3, style.roofTileRows);
+  for (let row = 0; row < battenRows; row += 1) {
+    const y = center.y + halfExtents.y + 0.3 + row * 0.105;
+    const z = 0.3 + row * 0.065;
+    const width = halfExtents.x * 2.25 - row * 0.055;
+    addDetailBox(`house-roof-batten-${name}-front-${row}`, center, yaw, 0, y, -z, width, 0.03, 0.035, materials.houseTrim, scene);
+    addDetailBox(`house-roof-batten-${name}-back-${row}`, center, yaw, 0, y, z, width, 0.03, 0.035, materials.houseTrim, scene);
+  }
+
+  for (let index = 0; index < 2; index += 1) {
+    const side = index === 0 ? -1 : 1;
+    addDetailBox(
+      `house-roof-moss-${name}-${index}`,
+      center,
+      yaw,
+      -halfExtents.x * 0.28 + index * halfExtents.x * 0.45,
+      center.y + halfExtents.y + 0.38 + index * 0.08,
+      side * (halfExtents.z * 0.34 + 0.04),
+      halfExtents.x * 0.72,
+      0.028,
+      0.052,
+      materials.houseRoofMoss,
+      scene,
+    );
+  }
+}
+
+function addHouseDoorHardware(
+  name: string,
+  center: Vector3,
+  halfExtents: Vector3,
+  yaw: number,
+  style: HouseStyle,
+  scene: Scene,
+  materials: CartoonMaterials,
+): void {
+  const hingeX = style.doorX - style.doorWidth * 0.42;
+  addFaceDetail(`house-door-hardware-${name}-hinge-low`, "front", center, halfExtents, yaw, hingeX, 0.18, 0.04, 0.13, 0.09, materials.houseDoorHardware, scene);
+  addFaceDetail(`house-door-hardware-${name}-hinge-high`, "front", center, halfExtents, yaw, hingeX, 0.57, 0.04, 0.13, 0.09, materials.houseDoorHardware, scene);
+  addFaceDetail(`house-door-hardware-${name}-latch`, "front", center, halfExtents, yaw, style.doorX + style.doorWidth * 0.24, 0.39, 0.16, 0.035, 0.092, materials.houseDoorHardware, scene);
+}
+
 function addHouseDetails(
   name: string,
   center: Vector3,
@@ -452,10 +649,45 @@ function addTree(
     0.06,
   );
 
+  for (let index = 0; index < 3; index += 1) {
+    const ridgeYaw = yaw + index * Math.PI * 0.66 + 0.14;
+    const offset = new Vector3(
+      Math.cos(ridgeYaw) * 0.13 * scale,
+      0,
+      Math.sin(ridgeYaw) * 0.13 * scale,
+    );
+    const ridgeStart = trunkStart.add(offset).add(new Vector3(0, 0.08 * scale, 0));
+    const ridgeEnd = trunkTop.add(offset.scale(0.46)).add(new Vector3(lean.x * 0.12, -0.08 * scale, lean.z * 0.12));
+    addAngledCylinder(
+      `tree-bark-ridge-${name}-${index}`,
+      ridgeStart,
+      ridgeEnd,
+      0.035 * scale,
+      0.018 * scale,
+      materials.treeBarkRidge,
+      scene,
+      5,
+    );
+  }
+
   for (let index = 0; index < 4; index += 1) {
     const rootYaw = yaw + index * Math.PI * 0.5 + (index % 2 === 0 ? 0.18 : -0.12);
     const center = position.add(new Vector3(Math.cos(rootYaw) * 0.2 * scale, 0.08 * scale, Math.sin(rootYaw) * 0.2 * scale));
     addSimpleBox(`${name}-root-${index}`, center, 0.48 * scale, 0.08 * scale, 0.13 * scale, rootYaw, materials.treeBark, scene, index % 2 === 0 ? 0.04 : -0.04);
+  }
+
+  for (let index = 0; index < 2; index += 1) {
+    const clutterYaw = yaw + index * Math.PI * 0.85 + 0.3;
+    const clutterHeight = (0.42 + index * 0.08) * scale;
+    addCrossCards(
+      `tree-base-clutter-${name}-${index}`,
+      position.add(new Vector3(Math.cos(clutterYaw) * 0.34 * scale, clutterHeight * 0.5 + 0.05 * scale, Math.sin(clutterYaw) * 0.34 * scale)),
+      0.34 * scale,
+      clutterHeight,
+      clutterYaw,
+      materials.groundDetailGrass,
+      scene,
+    );
   }
 
   for (let index = 0; index < 4; index += 1) {
@@ -475,34 +707,35 @@ function addTree(
   }
 
   canopy.forEach((lobe, index) => {
-    const world = toTreeWorld(
-      position,
-      yaw,
-      (lobe.x + lean.x * 0.35 / scale) * scale,
-      lobe.y * scale,
-      (lobe.z + lean.z * 0.35 / scale) * scale,
-    );
-    addLeafVolume(
-      `${name}-style-${variant}-leaf-volume-${lobe.id}`,
-      world,
-      lobe.sx * scale,
-      lobe.sy * scale,
-      lobe.sz * scale,
-      yaw + index * 0.23,
-      materials.treeLeafMask,
-      scene,
-      index + scale * 11,
-    );
-    addVegetationCard(
-      `${name}-style-${variant}-leaf-shell-${lobe.id}`,
-      world.add(new Vector3(0, 0.02 * scale, 0)),
-      lobe.sx * scale * 0.72,
-      lobe.sy * scale * 0.82,
-      yaw + index * 0.64,
-      materials.treeLeafShell,
-      scene,
-      -0.08 + (index % 2) * 0.16,
-    );
+    const lobeLeanX = lean.x * 0.35 / scale;
+    const lobeLeanZ = lean.z * 0.35 / scale;
+    const sprigs = [
+      { id: "core", x: 0, y: 0.02, z: 0, w: 0.44, h: 0.42, yawOffset: 0, material: materials.treeLeafMask, pitch: -0.08 },
+      { id: "upper", x: -0.16, y: 0.15, z: 0.07, w: 0.34, h: 0.36, yawOffset: 0.74, material: materials.treeLeafShell, pitch: 0.08 },
+      { id: "outer", x: 0.18, y: -0.03, z: -0.12, w: 0.36, h: 0.34, yawOffset: -0.56, material: materials.treeLeafMask, pitch: 0.12 },
+      { id: "lower", x: -0.04, y: -0.16, z: 0.16, w: 0.32, h: 0.32, yawOffset: 1.38, material: materials.treeLeafShell, pitch: -0.16 },
+    ] as const;
+
+    sprigs.forEach((sprig, sprigIndex) => {
+      const spreadYaw = yaw + index * 0.7 + sprigIndex * 1.25;
+      const world = toTreeWorld(
+        position,
+        yaw,
+        (lobe.x + lobeLeanX + sprig.x * lobe.sx) * scale,
+        (lobe.y + sprig.y * lobe.sy) * scale,
+        (lobe.z + lobeLeanZ + sprig.z * lobe.sz) * scale,
+      );
+      addLeafSprig(
+        `tree-leaf-sprig-${name}-${lobe.id}-${sprig.id}`,
+        world,
+        lobe.sx * sprig.w * scale,
+        lobe.sy * sprig.h * scale,
+        spreadYaw + sprig.yawOffset,
+        sprig.material,
+        scene,
+        sprig.pitch,
+      );
+    });
   });
 }
 
@@ -549,6 +782,21 @@ const organicPatchTemplates: PatchPoint[][] = [
 function makeOrganicPatchPoints(width: number, depth: number, variant: number): PatchPoint[] {
   const template = organicPatchTemplates[variant % organicPatchTemplates.length];
   return template.map(([x, z]) => [x * width, z * depth]);
+}
+
+function makeSoftPatchPoints(width: number, depth: number, variant: number, pointCount: number): PatchPoint[] {
+  const points: PatchPoint[] = [];
+  for (let index = 0; index < pointCount; index += 1) {
+    const angle = (index / pointCount) * Math.PI * 2;
+    const slowWave = Math.sin(angle * 2.6 + variant * 1.7) * 0.055;
+    const fineWave = Math.sin(angle * 5.2 + variant * 0.9) * 0.035;
+    const radius = 0.47 + slowWave + fineWave;
+    points.push([
+      Math.cos(angle) * width * radius,
+      Math.sin(angle) * depth * radius,
+    ]);
+  }
+  return points;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -655,8 +903,11 @@ function addTerrainPatch(
   scene: Scene,
   material: StandardMaterial,
   variant = 0,
+  softPointCount = 0,
 ): void {
-  const points = makeOrganicPatchPoints(width, depth, variant);
+  const points = softPointCount > 0
+    ? makeSoftPatchPoints(width, depth, variant, softPointCount)
+    : makeOrganicPatchPoints(width, depth, variant);
   const mesh = new Mesh(name, scene);
   const positions = [0, 0, 0];
   const normals = [0, 1, 0];
@@ -711,9 +962,9 @@ function addGroundVegetation(scene: Scene, materials: CartoonMaterials): void {
   }
 
   const grasses = [
-    [-10.8, -4.8], [-9.6, -2.6], [-7.6, 3.3], [-5.9, 5.2],
-    [-2.7, -7.4], [0.8, -6.1], [2.9, -5.5], [4.2, -4.4],
-    [6.4, -3.4], [8.8, -1.2], [9.6, 2.9], [11.4, 5.1],
+    [-12.2, -5.4], [-9.4, -2.1], [-7.6, 4.1], [-4.4, 5.8],
+    [-2.8, -8.1], [1.2, -6.2], [4.1, -4.6], [8.6, -1.4],
+    [10.3, 3.4], [12.0, 5.8],
   ] as const;
   grasses.forEach(([x, z], index) => {
     const height = 0.66 + (index % 2) * 0.1;
@@ -726,6 +977,88 @@ function addGroundVegetation(scene: Scene, materials: CartoonMaterials): void {
       materials.grassCard,
       scene,
     );
+  });
+}
+
+function addConceptGroundDetails(scene: Scene, materials: CartoonMaterials): void {
+  const clumpSeeds = [
+    [-13.0, -7.2], [-11.3, -3.9], [-9.8, 3.4], [-7.6, 5.7], [-5.4, -6.8],
+    [-3.2, 4.9], [-1.9, -8.3], [1.6, 5.9], [3.6, -5.5], [6.4, 6.6],
+    [8.3, -7.0], [10.8, 2.8], [13.2, -0.8], [14.1, 6.0],
+  ] as const;
+  clumpSeeds.forEach(([x, z], index) => {
+    const height = 0.38 + (index % 4) * 0.06;
+    addCrossCards(
+      `ground-detail-clump-${index}`,
+      new Vector3(x, terrainVisualHeightAt(x, z) + height * 0.5 + 0.04, z),
+      0.36 + (index % 3) * 0.08,
+      height,
+      index * 0.61,
+      materials.groundDetailGrass,
+      scene,
+    );
+  });
+
+  const flowerSeeds = [
+    [-13.4, -2.9], [-12.1, 4.5], [-9.8, -6.4], [-8.2, 2.4], [-6.8, 6.2],
+    [-4.4, -5.2], [-2.6, 5.8], [1.0, 4.6], [2.7, -5.9], [5.9, -4.2],
+    [7.4, 3.5], [10.6, 2.7], [13.5, 4.0], [14.2, -5.0], [-14.0, 1.0],
+  ] as const;
+  flowerSeeds.forEach(([x, z], index) => {
+    const flower = MeshBuilder.CreateSphere(`wildflower-card-${index}`, {
+      diameter: 0.09 + (index % 3) * 0.018,
+      segments: 5,
+    }, scene);
+    flower.position = new Vector3(x, terrainVisualHeightAt(x, z) + 0.12, z);
+    flower.scaling.y = 0.42;
+    flower.material = index % 3 === 0 ? materials.wildflowerYellow : materials.wildflowerPurple;
+  });
+
+  const pebbleSeeds = [
+    [-14.1, -5.4], [-12.5, 3.1], [-10.6, 5.8], [-8.4, -7.2], [-7.0, 0.6],
+    [-4.1, -4.4], [-2.1, 3.8], [0.7, -7.7], [3.8, -5.5], [5.1, 5.7],
+    [8.2, 4.4], [9.7, -6.2], [12.4, -3.2], [-13.0, 7.1], [14.5, -0.9],
+  ] as const;
+  pebbleSeeds.forEach(([x, z], index) => {
+    const pebble = MeshBuilder.CreateSphere(`pebble-detail-${index}`, {
+      diameter: 0.18 + (index % 4) * 0.035,
+      segments: 5,
+    }, scene);
+    pebble.position = new Vector3(x, terrainVisualHeightAt(x, z) + 0.06, z);
+    pebble.scaling.y = 0.42 + (index % 3) * 0.08;
+    pebble.rotation.y = index * 0.53;
+    pebble.material = materials.pebble;
+    pebble.convertToFlatShadedMesh();
+  });
+}
+
+function addStoneClusterPieces(scene: Scene, materials: CartoonMaterials): void {
+  const pieces = [
+    [-3.92, -1.82, 0.26, 0.42, 0.32, -0.2],
+    [-3.64, -0.72, 0.18, 0.36, 0.28, 0.5],
+    [-2.42, -1.96, 0.22, 0.34, 0.3, 1.1],
+    [-2.16, -0.9, 0.16, 0.28, 0.24, -0.7],
+    [-3.18, -2.28, 0.2, 0.32, 0.24, 0.8],
+    [-4.18, -1.1, 0.17, 0.3, 0.22, 1.7],
+    [2.38, 0.58, 0.2, 0.34, 0.26, -0.3],
+    [3.92, 0.78, 0.24, 0.38, 0.3, 0.6],
+    [2.74, 1.96, 0.18, 0.32, 0.25, 1.2],
+    [3.66, 1.86, 0.16, 0.3, 0.22, -1.1],
+    [2.2, 1.32, 0.15, 0.26, 0.2, 2.0],
+    [4.18, 1.42, 0.19, 0.31, 0.23, -2.3],
+  ] as const;
+
+  pieces.forEach(([x, z, diameter, scaleX, scaleZ, yaw], index) => {
+    const scaleY = 0.38 + (index % 3) * 0.07;
+    const piece = MeshBuilder.CreateSphere(`stone-cluster-piece-${index}`, {
+      diameter,
+      segments: 5,
+    }, scene);
+    piece.position = new Vector3(x, terrainVisualHeightAt(x, z) + diameter * scaleY * 0.52, z);
+    piece.scaling = new Vector3(scaleX, scaleY, scaleZ);
+    piece.rotation.y = yaw;
+    piece.material = materials.stoneCluster;
+    piece.convertToFlatShadedMesh();
   });
 }
 
@@ -750,8 +1083,13 @@ export function createDioramaMap(scene: Scene, materials: CartoonMaterials): Dio
   edge.position.y = -0.42;
   edge.material = materials.edge;
 
-  addTerrainPatch("terrain-patch-sand-south-east", new Vector3(8.5, 0.035, -6.4), 7.2, 4.8, -0.15, scene, materials.terrainSand, 0);
-  addTerrainPatch("terrain-patch-sand-village-grove", new Vector3(4.7, 0.041, -2.65), 4.3, 2.6, -0.28, scene, materials.terrainSand, 1);
+  addTerrainPatch("terrain-patch-sand-south-east", new Vector3(9.6, terrainVisualHeightAt(9.6, -7.8) + 0.055, -7.8), 4.7, 2.9, -0.15, scene, materials.terrainSand, 0, 48);
+  addTerrainPatch("terrain-patch-sand-village-grove", new Vector3(3.8, terrainVisualHeightAt(3.8, -4.9) + 0.055, -4.9), 3.3, 2.1, -0.28, scene, materials.terrainSand, 1, 48);
+  addTerrainPatch("terrain-patch-meadow-west", new Vector3(-11.2, terrainVisualHeightAt(-11.2, 3.8) + 0.06, 3.8), 5.7, 3.4, 0.22, scene, materials.terrainMeadow, 1);
+  addTerrainPatch("terrain-patch-meadow-south", new Vector3(-1.2, terrainVisualHeightAt(-1.2, -7.55) + 0.06, -7.55), 6.4, 3.6, -0.08, scene, materials.terrainMeadow, 2);
+  addTerrainPatch("terrain-patch-meadow-north", new Vector3(2.35, terrainVisualHeightAt(2.35, 6.4) + 0.06, 6.4), 5.4, 3.2, 0.32, scene, materials.terrainMeadow, 0);
+  addTerrainPatch("terrain-patch-meadow-east", new Vector3(11.5, terrainVisualHeightAt(11.5, 0.2) + 0.06, 0.2), 5.3, 3.1, -0.38, scene, materials.terrainMeadow, 1);
+  addTerrainPatch("terrain-patch-meadow-south-east", new Vector3(8.2, terrainVisualHeightAt(8.2, -8.4) + 0.06, -8.4), 4.9, 2.8, 0.18, scene, materials.terrainMeadow, 2);
   addRoadRibbon("terrain-road-main", [
     { x: -17.4, z: -11.4, width: 1.28 },
     { x: -11.2, z: -6.6, width: 1.42 },
@@ -763,58 +1101,61 @@ export function createDioramaMap(scene: Scene, materials: CartoonMaterials): Dio
   ], scene, materials.terrainRoad);
   addRoadRibbon("terrain-road-spur-north-house", [
     { x: -0.8, z: 0.35, width: 0.72 },
-    { x: -1.05, z: 1.8, width: 0.82 },
-    { x: -1.2, z: 2.75, width: 0.68 },
+    { x: -1.55, z: 2.3, width: 0.64 },
+    { x: -2.25, z: 4.05, width: 0.52 },
   ], scene, materials.pathDirt);
   addRoadRibbon("terrain-road-spur-east-house", [
     { x: 4.8, z: 2.0, width: 0.76 },
-    { x: 5.2, z: 2.15, width: 0.62 },
+    { x: 5.35, z: 3.8, width: 0.58 },
+    { x: 6.05, z: 5.4, width: 0.48 },
   ], scene, materials.pathDirt);
   addRoadRibbon("terrain-road-spur-south-west-house", [
     { x: -5.6, z: -2.8, width: 0.82 },
-    { x: -4.95, z: -3.05, width: 0.66 },
+    { x: -6.45, z: -4.9, width: 0.58 },
+    { x: -7.1, z: -6.25, width: 0.48 },
   ], scene, materials.pathDirt);
 
   const obstacles = [
-    makeObstacle("rock-west", new Vector3(-3.1, 0.28, -1.4), new Vector3(0.7, 0.35, 0.55), scene, materials),
-    makeObstacle("rock-east", new Vector3(3.2, 0.28, 1.2), new Vector3(0.65, 0.35, 0.55), scene, materials),
+    makeRockObstacle("rock-west", new Vector3(-3.1, 0.28, -1.4), new Vector3(0.7, 0.35, 0.55), scene, materials, 1),
+    makeRockObstacle("rock-east", new Vector3(3.2, 0.28, 1.2), new Vector3(0.65, 0.35, 0.55), scene, materials, 2),
   ];
+  addStoneClusterPieces(scene, materials);
 
-  addHouse("house-north", new Vector3(-1.25, 0.95, 3.3), new Vector3(0.88, 0.95, 0.62), 0, {
+  addHouse("house-north", new Vector3(-2.4, 0.95, 4.9), new Vector3(0.78, 0.95, 0.56), 0, {
     wallVariant: 0,
     roofVariant: 0,
     doorX: 0,
     doorWidth: 0.38,
     chimneyX: 0.44,
     chimneyZ: 0.08,
-    roofTileRows: 4,
+    roofTileRows: 1,
     windows: [
       { id: "front-left", face: "front", along: -0.48, bottom: 0.58, width: 0.28, height: 0.28 },
       { id: "front-right", face: "front", along: 0.48, bottom: 0.62, width: 0.28, height: 0.28 },
       { id: "right-small", face: "right", along: 0.08, bottom: 0.66, width: 0.24, height: 0.24 },
     ],
   }, obstacles, scene, materials);
-  addHouse("house-south-west", new Vector3(-5.05, 0.95, -3.05), new Vector3(0.74, 0.95, 0.56), Math.PI / 2, {
+  addHouse("house-south-west", new Vector3(-7.25, 0.95, -7.0), new Vector3(0.72, 0.95, 0.54), Math.PI / 2, {
     wallVariant: 1,
     roofVariant: 1,
     doorX: -0.18,
     doorWidth: 0.34,
     chimneyX: -0.34,
     chimneyZ: -0.06,
-    roofTileRows: 5,
+    roofTileRows: 1,
     windows: [
       { id: "front-tall", face: "front", along: 0.32, bottom: 0.56, width: 0.26, height: 0.36 },
       { id: "left-square", face: "left", along: -0.08, bottom: 0.64, width: 0.24, height: 0.24 },
     ],
   }, obstacles, scene, materials);
-  addHouse("house-east", new Vector3(5.0, 0.95, 2.15), new Vector3(0.8, 0.95, 0.58), -Math.PI / 2, {
+  addHouse("house-east", new Vector3(6.25, 0.95, 6.25), new Vector3(0.76, 0.95, 0.56), -Math.PI / 2, {
     wallVariant: 2,
     roofVariant: 2,
     doorX: 0.2,
     doorWidth: 0.36,
     chimneyX: 0.08,
     chimneyZ: 0.22,
-    roofTileRows: 4,
+    roofTileRows: 1,
     windows: [
       { id: "front-wide", face: "front", along: -0.36, bottom: 0.6, width: 0.36, height: 0.26 },
       { id: "front-attic", face: "front", along: 0.36, bottom: 1.02, width: 0.24, height: 0.22 },
@@ -829,6 +1170,7 @@ export function createDioramaMap(scene: Scene, materials: CartoonMaterials): Dio
   addTree("tree-west-meadow", terrainPosition(-8.35, 0.85), scene, materials, { scale: 0.88, yaw: 2.1, variant: "tall" });
   addTree("tree-south-meadow", terrainPosition(-1.7, -6.4), scene, materials, { scale: 1.18, yaw: 0.75, variant: "bent" });
   addGroundVegetation(scene, materials);
+  addConceptGroundDetails(scene, materials);
 
   addFenceSegment("fence-north-a", new Vector3(-2.35, 0.18, 2.42), 0.9, 0, scene, materials);
   addFenceSegment("fence-north-b", new Vector3(-0.2, 0.18, 2.45), 0.75, 0, scene, materials);

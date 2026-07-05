@@ -6,8 +6,12 @@ import { deflateSync } from "node:zlib";
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const terrainOutDir = join(root, "public", "assets", "terrain");
 const vegetationOutDir = join(root, "public", "assets", "vegetation");
+const textureOutDir = join(root, "public", "assets", "textures");
+const conceptTextureOutDir = join(textureOutDir, "concept");
 mkdirSync(terrainOutDir, { recursive: true });
 mkdirSync(vegetationOutDir, { recursive: true });
+mkdirSync(textureOutDir, { recursive: true });
+mkdirSync(conceptTextureOutDir, { recursive: true });
 
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const crcTable = Array.from({ length: 256 }, (_, index) => {
@@ -66,6 +70,19 @@ const smooth = (value) => value * value * (3 - value * 2);
 const hash = (x, y, seed) => fract(Math.sin(x * 127.1 + y * 311.7 + seed * 74.7) * 43758.5453123);
 const shade = (color, amount) => color.map((channel) => Math.round(clamp(channel + amount, 0, 255)));
 const mixColor = (from, to, amount) => from.map((channel, index) => Math.round(lerp(channel, to[index], amount)));
+const distanceToLine = (x, y, ax, ay, bx, by) => {
+  const vx = bx - ax;
+  const vy = by - ay;
+  const wx = x - ax;
+  const wy = y - ay;
+  const lengthSq = vx * vx + vy * vy || 1;
+  const t = clamp((wx * vx + wy * vy) / lengthSq, 0, 1);
+  const px = ax + vx * t;
+  const py = ay + vy * t;
+  const dx = x - px;
+  const dy = y - py;
+  return Math.sqrt(dx * dx + dy * dy);
+};
 
 function tileNoise(x, y, cellSize, seed, width, height) {
   const cellsX = Math.max(1, Math.round(width / cellSize));
@@ -100,6 +117,14 @@ function edgeAlpha(x, y, width, height, feather) {
   return Math.round(clamp(smooth(clamp(distance / feather, 0, 1)) * 255, 0, 255));
 }
 
+function softPatchAlpha(x, y, width, height, feather = 0.18) {
+  const nx = (x / (width - 1) - 0.5) / 0.5;
+  const ny = (y / (height - 1) - 0.5) / 0.5;
+  const edgeNoise = (fbm(x, y, 613, width, height) - 0.5) * 0.08;
+  const distance = 1 - Math.sqrt(nx * nx + ny * ny) + edgeNoise;
+  return Math.round(clamp(smooth(clamp(distance / feather, 0, 1)) * 255, 0, 255));
+}
+
 function ellipseMask(x, y, cx, cy, rx, ry) {
   const dx = (x - cx) / rx;
   const dy = (y - cy) / ry;
@@ -130,6 +155,117 @@ function grassBladeAmount(x, y) {
   return distance < 0.65 ? 1 - distance / 0.65 : 0;
 }
 
+function woodGrain(x, y, seed, width, height) {
+  const flow = tileNoise(x, y, 42, seed, width, height) * 22;
+  const longWave = Math.sin((y * 0.18 + flow) * Math.PI);
+  const fineWave = Math.sin((y * 0.72 + flow * 0.45) * Math.PI);
+  return longWave * 0.72 + fineWave * 0.28;
+}
+
+function stoneColor(x, y, width, height, baseDark = [90, 96, 92], baseLight = [150, 156, 148]) {
+  const broad = fbm(x, y, 161, width, height);
+  const veins = Math.abs(Math.sin((x * 0.08 + y * 0.045 + tileNoise(x, y, 28, 162, width, height) * 3.4) * Math.PI));
+  let color = mixColor(baseDark, baseLight, broad * 0.8);
+  if (veins < 0.13) color = mixColor(color, [56, 61, 58], 0.35);
+  if (speckle(x, y, 163, 0.94)) color = shade(color, hash(x, y, 164) > 0.5 ? 24 : -28);
+  return color;
+}
+
+function tileMortar(x, y, width, height, tileW, tileH, stagger = 0) {
+  const row = Math.floor(y / tileH);
+  const offsetX = row % 2 ? stagger : 0;
+  const localX = (x + offsetX) % tileW;
+  const localY = y % tileH;
+  const edge = Math.min(localX, tileW - localX, localY, tileH - localY);
+  return edge;
+}
+
+function cellBlobAmount(x, y, cellSize, seed, density = 0.42) {
+  const cellX = Math.floor(x / cellSize);
+  const cellY = Math.floor(y / cellSize);
+  if (hash(cellX, cellY, seed) > density) return 0;
+  const localX = x - cellX * cellSize;
+  const localY = y - cellY * cellSize;
+  const cx = hash(cellX, cellY, seed + 1) * cellSize;
+  const cy = hash(cellX, cellY, seed + 2) * cellSize;
+  const rx = cellSize * (0.16 + hash(cellX, cellY, seed + 3) * 0.18);
+  const ry = cellSize * (0.12 + hash(cellX, cellY, seed + 4) * 0.16);
+  return ellipseMask(localX, localY, cx, cy, rx, ry);
+}
+
+function verticalStreakAmount(x, y, seed, width, height) {
+  const column = tileNoise(x, y, 22, seed, width, height);
+  const waviness = tileNoise(x, y, 12, seed + 1, width, height) * 4;
+  const thread = Math.abs(((x + waviness + column * 7) % 31) - 15.5);
+  const falloff = smooth(clamp(y / height, 0, 1));
+  return thread < 1.1 && column > 0.52 ? falloff * (1 - thread / 1.1) : 0;
+}
+
+function meadowGrassPixel(x, y, width, height, seed = 3) {
+  const broad = fbm(x, y, seed, width, height);
+  const meadow = tileNoise(x, y, 72, seed + 9, width, height);
+  const clover = cellBlobAmount(x, y, 20, seed + 33, 0.5);
+  const detail = tileNoise(x, y, 6, seed + 25, width, height);
+  let color = mixColor(
+    [94, 148, 54],
+    [178, 209, 98],
+    clamp(broad * 0.46 + meadow * 0.34 + detail * 0.16, 0, 1),
+  );
+
+  if (clover > 0.18) color = mixColor(color, [130, 186, 72], clover * 0.32);
+  const sunPatch = cellBlobAmount(x + 11, y - 7, 42, seed + 42, 0.34);
+  if (sunPatch > 0.18) color = mixColor(color, [196, 215, 112], sunPatch * 0.28);
+
+  const blade = grassBladeAmount(x, y);
+  if (blade > 0) {
+    color = mixColor(color, hash(x, y, seed + 73) > 0.45 ? [190, 224, 112] : [76, 134, 52], blade * 0.42);
+  }
+
+  const warmFleck = tileNoise(x, y, 11, seed + 74, width, height);
+  if (warmFleck > 0.8) color = mixColor(color, [184, 179, 98], (warmFleck - 0.8) * 0.8);
+
+  const wildStem = Math.abs(((x * 0.42 - y * 0.16 + tileNoise(x, y, 18, seed + 75, width, height) * 6) % 13) - 6.5);
+  if (wildStem < 0.28 && hash(Math.floor(x / 3), Math.floor(y / 11), seed + 76) > 0.5) {
+    color = mixColor(color, [212, 205, 124], 0.2);
+  }
+
+  const flower = cellBlobAmount(x + 5, y + 3, 17, seed + 77, 0.22);
+  if (flower > 0.34) color = mixColor(color, hash(x, y, seed + 78) > 0.58 ? [240, 224, 126] : [206, 172, 230], flower * 0.34);
+  if (speckle(x, y, seed + 79, 0.972)) color = shade(color, -12);
+  if (speckle(x, y, seed + 80, 0.975)) color = shade(color, 18);
+  return color;
+}
+
+function cleanDirtRoadPixel(x, y, width, height, seed = 11) {
+  const across = Math.abs(x / (width - 1) - 0.5) * 2;
+  const centerWear = Math.max(0, 1 - across);
+  const soil = fbm(x, y, seed, width, height);
+  const fineDust = tileNoise(x, y, 9, seed + 4, width, height);
+  const lengthGrain = Math.sin((y * 0.12 + tileNoise(x, y, 28, seed + 9, width, height) * 1.8) * Math.PI);
+  let color = mixColor([154, 101, 54], [221, 159, 82], soil * 0.45 + centerWear * 0.22 + fineDust * 0.18);
+  color = shade(color, Math.round(lengthGrain * 4 - across * 6));
+
+  const softPebble = cellBlobAmount(x, y, 18, seed + 31, 0.24);
+  if (softPebble > 0.22) color = mixColor(color, [196, 178, 132], softPebble * 0.26);
+
+  const dryGrassEdge = across > 0.74 && tileNoise(x, y, 21, seed + 45, width, height) > 0.56;
+  if (dryGrassEdge) color = mixColor(color, [176, 163, 92], 0.14);
+  if (speckle(x, y, seed + 52, 0.965)) color = shade(color, hash(x, y, seed + 53) > 0.5 ? 12 : -12);
+  return color;
+}
+
+function cleanBareSoilPixel(x, y, width, height, seed = 25) {
+  const broad = fbm(x, y, seed, width, height);
+  const dust = tileNoise(x, y, 10, seed + 6, width, height);
+  let color = mixColor([142, 96, 54], [212, 166, 96], broad * 0.52 + dust * 0.24);
+  const softPebble = cellBlobAmount(x, y, 20, seed + 18, 0.22);
+  if (softPebble > 0.24) color = mixColor(color, [190, 174, 128], softPebble * 0.24);
+  const dryGrass = cellBlobAmount(x + 8, y - 5, 30, seed + 31, 0.25);
+  if (dryGrass > 0.22) color = mixColor(color, [165, 160, 92], dryGrass * 0.16);
+  if (speckle(x, y, seed + 44, 0.97)) color = shade(color, hash(x, y, seed + 45) > 0.5 ? 10 : -10);
+  return color;
+}
+
 writePng(terrainOutDir, "heightmap-valley.png", 128, 128, (x, y, width, height) => {
   const nx = (x / (width - 1)) * 2 - 1;
   const nz = (y / (height - 1)) * 2 - 1;
@@ -144,44 +280,38 @@ writePng(terrainOutDir, "heightmap-valley.png", 128, 128, (x, y, width, height) 
 });
 
 writePng(terrainOutDir, "grass.png", 256, 256, (x, y, width, height) => {
-  const broad = fbm(x, y, 3, width, height);
-  const meadow = tileNoise(x, y, 64, 12, width, height);
-  const clump = tileNoise(x, y, 24, 18, width, height);
-  const detail = tileNoise(x, y, 6, 28, width, height);
-  let color = mixColor([58, 123, 55], [116, 170, 79], broad * 0.72 + meadow * 0.28);
-  if (clump > 0.58) color = mixColor(color, [43, 105, 50], (clump - 0.58) * 1.15);
-  if (detail > 0.7) color = mixColor(color, [138, 188, 94], 0.22);
-  const blade = grassBladeAmount(x, y);
-  if (blade > 0) color = mixColor(color, hash(x, y, 76) > 0.5 ? [142, 194, 99] : [38, 97, 47], blade * 0.45);
-  if (speckle(x, y, 41, 0.975)) color = shade(color, -22);
-  if (speckle(x, y, 42, 0.982)) color = shade(color, 18);
-  return [...color, 255];
+  return [...meadowGrassPixel(x, y, width, height, 3), 255];
+});
+
+writePng(terrainOutDir, "meadow.png", 256, 256, (x, y, width, height) => {
+  let color = meadowGrassPixel(x, y, width, height, 303);
+  const flowerScatter = cellBlobAmount(x + 13, y - 9, 14, 309, 0.36);
+  if (flowerScatter > 0.26) color = mixColor(color, hash(x, y, 310) > 0.5 ? [242, 226, 128] : [218, 184, 238], flowerScatter * 0.46);
+  return [...color, edgeAlpha(x, y, width, height, 30)];
+});
+
+writePng(conceptTextureOutDir, "grass.png", 512, 512, (x, y, width, height) => {
+  return [...meadowGrassPixel(x, y, width, height, 403), 255];
 });
 
 writePng(terrainOutDir, "sand.png", 256, 256, (x, y, width, height) => {
-  const broad = fbm(x, y, 7, width, height);
-  const ripples = Math.sin((x * 0.17 + y * 0.08 + tileNoise(x, y, 16, 16, width, height) * 2.4) * Math.PI);
-  let color = mixColor([172, 133, 77], [226, 188, 111], broad);
-  color = shade(color, Math.round(ripples * 7));
-  const crack = Math.abs(((x * 0.82 + y * 0.36 + tileNoise(x, y, 32, 24, width, height) * 18) % 47) - 23.5) < 0.48
-    && tileNoise(x, y, 16, 25, width, height) > 0.58;
-  if (crack) color = mixColor(color, [116, 83, 52], 0.38);
-  if (speckle(x, y, 53, 0.93)) color = shade(color, hash(x, y, 54) > 0.5 ? 22 : -24);
-  return [...color, edgeAlpha(x, y, width, height, 24)];
+  const color = mixColor(cleanBareSoilPixel(x, y, width, height, 7), [228, 184, 108], 0.16);
+  return [...color, softPatchAlpha(x, y, width, height, 0.2)];
 });
 
 writePng(terrainOutDir, "road.png", 256, 256, (x, y, width, height) => {
   const across = Math.abs(x / (width - 1) - 0.5) * 2;
-  const centerWear = Math.max(0, 1 - across);
-  const mud = fbm(x, y, 11, width, height);
-  const lengthGrain = Math.sin((y * 0.19 + tileNoise(x, y, 16, 33, width, height) * 3.2) * Math.PI);
-  let color = mixColor([92, 67, 43], [151, 109, 67], mud * 0.72 + centerWear * 0.22);
-  color = shade(color, Math.round(lengthGrain * 6 - across * 16));
-  const rut = Math.abs(x - width * 0.33) < 2.3 || Math.abs(x - width * 0.67) < 2.3;
-  if (rut && tileNoise(x, y, 8, 43, width, height) > 0.42) color = mixColor(color, [73, 51, 34], 0.34);
-  if (speckle(x, y, 61, 0.94)) color = shade(color, hash(x, y, 62) > 0.48 ? 25 : -28);
+  const color = cleanDirtRoadPixel(x, y, width, height, 11);
   const sideFade = smooth(clamp((1 - across) / 0.2, 0, 1));
   return [...color, Math.min(edgeAlpha(x, y, width, height, 18), Math.round(sideFade * 255))];
+});
+
+writePng(conceptTextureOutDir, "dirt-road.png", 512, 512, (x, y, width, height) => {
+  return [...cleanDirtRoadPixel(x, y, width, height, 411), 255];
+});
+
+writePng(conceptTextureOutDir, "dark-dirt.png", 512, 512, (x, y, width, height) => {
+  return [...cleanBareSoilPixel(x, y, width, height, 425), 255];
 });
 
 writePng(vegetationOutDir, "tree-leaves.png", 256, 256, (x, y, width, height) => {
@@ -198,11 +328,13 @@ writePng(vegetationOutDir, "tree-leaves.png", 256, 256, (x, y, width, height) =>
     mask = Math.max(mask, ellipseMask(x, y, cx, cy, rx, ry));
   }
   const noise = fbm(x, y, 81, width, height);
-  let color = mixColor([30, 90, 42], [102, 156, 66], noise);
-  if (hash(x, y, 82) > 0.94) color = shade(color, 22);
-  if (hash(x, y, 83) > 0.94) color = shade(color, -22);
+  let color = mixColor([34, 88, 42], [124, 166, 74], noise);
+  const vein = Math.abs(((x * 0.36 + y * 0.22 + tileNoise(x, y, 11, 84, width, height) * 5) % 19) - 9.5);
+  if (vein < 0.42) color = mixColor(color, [164, 188, 94], 0.22);
+  if (hash(x, y, 82) > 0.91) color = shade(color, 22);
+  if (hash(x, y, 83) > 0.91) color = shade(color, -18);
   const cut = softShapeAlpha(mask);
-  return [...color, cut > 70 ? 255 : 0];
+  return [...color, cut > 54 ? 255 : 0];
 });
 
 writePng(vegetationOutDir, "tree-leaf-shell.png", 256, 256, (x, y, width, height) => {
@@ -216,8 +348,10 @@ writePng(vegetationOutDir, "tree-leaf-shell.png", 256, 256, (x, y, width, height
   for (const [cx, cy, rx, ry] of clusters) {
     mask = Math.max(mask, ellipseMask(x, y, cx, cy, rx, ry));
   }
-  const color = mixColor([28, 84, 42], [118, 166, 76], fbm(x, y, 121, width, height));
-  const interior = mask > 0.18 ? 255 : 0;
+  let color = mixColor([38, 94, 46], [136, 176, 84], fbm(x, y, 121, width, height));
+  const leafPocket = cellBlobAmount(x, y, 16, 123, 0.44);
+  if (leafPocket > 0.2) color = mixColor(color, [26, 72, 38], leafPocket * 0.24);
+  const interior = mask > 0.12 ? 255 : 0;
   const holes = hash(Math.floor(x / 7), Math.floor(y / 7), 122) > 0.86 && mask > 0.35 ? 0 : interior;
   return [...color, holes];
 });
@@ -225,10 +359,14 @@ writePng(vegetationOutDir, "tree-leaf-shell.png", 256, 256, (x, y, width, height
 writePng(vegetationOutDir, "tree-bark.png", 256, 256, (x, y, width, height) => {
   const vertical = Math.sin((x * 0.14 + tileNoise(x, y, 18, 131, width, height) * 2.4) * Math.PI);
   const knots = tileNoise(x, y, 26, 132, width, height);
-  let color = mixColor([86, 48, 25], [151, 91, 45], fbm(x, y, 133, width, height));
-  color = shade(color, Math.round(vertical * 15));
-  if (knots > 0.73) color = mixColor(color, [50, 28, 17], 0.48);
-  if (hash(x, y, 134) > 0.965) color = shade(color, 24);
+  let color = mixColor([68, 42, 27], [132, 82, 46], fbm(x, y, 133, width, height));
+  color = shade(color, Math.round(vertical * 18));
+  const furrow = Math.abs(((x + tileNoise(x, y, 12, 135, width, height) * 10) % 18) - 9);
+  if (furrow < 1.2) color = mixColor(color, [36, 23, 17], 0.42);
+  const raised = Math.abs(((x + tileNoise(x, y, 10, 136, width, height) * 8) % 18) - 3.5);
+  if (raised < 0.8) color = mixColor(color, [158, 104, 62], 0.28);
+  if (knots > 0.69) color = mixColor(color, [38, 24, 18], 0.54);
+  if (hash(x, y, 134) > 0.955) color = shade(color, 22);
   return [...color, 255];
 });
 
@@ -243,7 +381,7 @@ writePng(vegetationOutDir, "bush.png", 256, 256, (x, y, width, height) => {
   for (const [cx, cy, rx, ry] of clusters) {
     mask = Math.max(mask, ellipseMask(x, y, cx, cy, rx, ry));
   }
-  const color = mixColor([42, 115, 55], [123, 170, 78], fbm(x, y, 91, width, height));
+  const color = mixColor([36, 92, 48], [104, 142, 74], fbm(x, y, 91, width, height));
   return [...color, softShapeAlpha(mask)];
 });
 
@@ -252,6 +390,112 @@ writePng(vegetationOutDir, "grass-card.png", 256, 256, (x, y, width, height) => 
   const bladeField = Math.max(0, ground - 0.25);
   const blade = grassBladeAmount(x, y)
     || (hash(Math.floor(x / 5), Math.floor(y / 9), 101) > 0.62 && bladeField > 0 ? bladeField : 0);
-  const color = mixColor([46, 111, 48], [139, 187, 82], fbm(x, y, 102, width, height));
+  const color = mixColor([74, 134, 52], [190, 220, 112], fbm(x, y, 102, width, height));
   return [...color, Math.round(clamp(blade * 255, 0, 255))];
+});
+
+writePng(textureOutDir, "stone.png", 256, 256, (x, y, width, height) => {
+  let color = stoneColor(x, y, width, height);
+  const crackA = distanceToLine(x, y, 28, 74, 224, 38) < 1.1 && tileNoise(x, y, 18, 171, width, height) > 0.38;
+  const crackB = distanceToLine(x, y, 52, 214, 184, 102) < 0.9 && tileNoise(x, y, 16, 172, width, height) > 0.44;
+  if (crackA || crackB) color = mixColor(color, [42, 46, 44], 0.58);
+  const embeddedPebble = cellBlobAmount(x, y, 21, 174, 0.38);
+  if (embeddedPebble > 0.22) color = mixColor(color, [170, 168, 154], embeddedPebble * 0.34);
+  const pitted = cellBlobAmount(x + 9, y + 3, 9, 175, 0.5);
+  if (pitted > 0.3) color = mixColor(color, [54, 58, 56], pitted * 0.32);
+  const moss = y > height * 0.62 && tileNoise(x, y, 18, 173, width, height) > 0.72;
+  if (moss) color = mixColor(color, [58, 82, 48], 0.35);
+  return [...color, 255];
+});
+
+writePng(textureOutDir, "weathered-wood.png", 256, 256, (x, y, width, height) => {
+  const grain = woodGrain(x, y, 181, width, height);
+  const plank = Math.floor(y / 42);
+  let color = mixColor([83, 56, 34], [156, 105, 62], fbm(x, y + plank * 17, 182, width, height));
+  color = shade(color, Math.round(grain * 18));
+  if (y % 42 < 2 || y % 42 > 39) color = mixColor(color, [42, 31, 24], 0.45);
+  const split = Math.abs(((x * 0.26 + y * 0.02 + tileNoise(x, y, 24, 185, width, height) * 8) % 37) - 18.5);
+  if (split < 0.45 && tileNoise(x, y, 9, 186, width, height) > 0.42) color = mixColor(color, [32, 24, 18], 0.48);
+  const worn = cellBlobAmount(x, y, 34, 187, 0.36);
+  if (worn > 0.2) color = mixColor(color, [184, 156, 116], worn * 0.26);
+  if (speckle(x, y, 183, 0.965)) color = shade(color, hash(x, y, 184) > 0.5 ? 28 : -34);
+  return [...color, 255];
+});
+
+function roofTexturePixel(x, y, width, height, dark, mid, light, seed) {
+  const edge = tileMortar(x, y, width, height, 38, 22, 19);
+  const age = fbm(x, y, seed, width, height);
+  let color = mixColor(mid, light, age * 0.42);
+  color = mixColor(color, dark, tileNoise(x, y, 9, seed + 1, width, height) * 0.28);
+  if (edge < 1.8) color = mixColor(color, [44, 35, 32], 0.58);
+  const tileLip = y % 22;
+  if (tileLip < 3.2) color = mixColor(color, [32, 28, 27], 0.25);
+  if (tileLip > 15 && tileLip < 19) color = mixColor(color, light, 0.16);
+  const chipped = cellBlobAmount(x, y, 18, seed + 4, 0.34);
+  if (chipped > 0.28) color = mixColor(color, [78, 62, 52], chipped * 0.34);
+  if (speckle(x, y, seed + 2, 0.94)) color = shade(color, hash(x, y, seed + 3) > 0.5 ? 20 : -26);
+  return [...color, 255];
+}
+
+writePng(textureOutDir, "roof-tiles-red.png", 256, 256, (x, y, width, height) => (
+  roofTexturePixel(x, y, width, height, [79, 36, 29], [145, 67, 48], [185, 99, 70], 191)
+));
+
+writePng(textureOutDir, "roof-tiles-teal.png", 256, 256, (x, y, width, height) => (
+  roofTexturePixel(x, y, width, height, [28, 64, 67], [54, 103, 105], [88, 139, 136], 201)
+));
+
+writePng(textureOutDir, "roof-tiles-violet.png", 256, 256, (x, y, width, height) => (
+  roofTexturePixel(x, y, width, height, [56, 46, 70], [96, 82, 116], [132, 116, 148], 211)
+));
+
+function plasterPixel(x, y, width, height, dark, mid, light, seed) {
+  const n = fbm(x, y, seed, width, height);
+  const sand = tileNoise(x, y, 5, seed + 1, width, height);
+  let color = mixColor(dark, light, n * 0.7 + sand * 0.18);
+  const hairline = Math.abs(((x * 0.44 + y * 0.29 + tileNoise(x, y, 26, seed + 2, width, height) * 18) % 67) - 33.5) < 0.45
+    && tileNoise(x, y, 14, seed + 3, width, height) > 0.65;
+  if (hairline) color = mixColor(color, dark, 0.45);
+  const rainStreak = verticalStreakAmount(x, y, seed + 6, width, height);
+  if (rainStreak > 0) color = mixColor(color, [72, 62, 48], rainStreak * 0.38);
+  const peeled = cellBlobAmount(x, y, 38, seed + 7, 0.36);
+  if (peeled > 0.24) color = mixColor(color, dark, peeled * 0.18);
+  if (speckle(x, y, seed + 4, 0.965)) color = shade(color, hash(x, y, seed + 5) > 0.5 ? 15 : -20);
+  return [...color, 255];
+}
+
+writePng(textureOutDir, "plaster-warm.png", 256, 256, (x, y, width, height) => (
+  plasterPixel(x, y, width, height, [130, 95, 67], [178, 138, 102], [214, 178, 134], 221)
+));
+
+writePng(textureOutDir, "plaster-sage.png", 256, 256, (x, y, width, height) => (
+  plasterPixel(x, y, width, height, [91, 116, 86], [138, 163, 126], [177, 196, 158], 231)
+));
+
+writePng(textureOutDir, "plaster-clay.png", 256, 256, (x, y, width, height) => (
+  plasterPixel(x, y, width, height, [126, 70, 52], [177, 102, 76], [209, 142, 107], 241)
+));
+
+writePng(textureOutDir, "trim-aged.png", 256, 256, (x, y, width, height) => {
+  let color = mixColor([158, 130, 91], [220, 192, 144], fbm(x, y, 251, width, height));
+  color = shade(color, Math.round(woodGrain(x, y, 252, width, height) * 9));
+  if (speckle(x, y, 253, 0.965)) color = shade(color, -28);
+  return [...color, 255];
+});
+
+writePng(textureOutDir, "door-wood.png", 256, 256, (x, y, width, height) => {
+  let color = mixColor([58, 36, 24], [117, 72, 42], fbm(x, y, 261, width, height));
+  color = shade(color, Math.round(woodGrain(x, y, 262, width, height) * 22));
+  if (x % 64 < 3 || x % 64 > 61) color = mixColor(color, [30, 22, 18], 0.42);
+  const knot = ellipseMask(x, y, 82, 146, 19, 11) || ellipseMask(x, y, 174, 82, 17, 10);
+  if (knot > 0.2) color = mixColor(color, [34, 22, 16], knot * 0.6);
+  return [...color, 255];
+});
+
+writePng(textureOutDir, "window-glass.png", 256, 256, (x, y, width, height) => {
+  const gradient = y / (height - 1);
+  let color = mixColor([76, 112, 124], [152, 185, 190], gradient * 0.6 + fbm(x, y, 271, width, height) * 0.25);
+  if (Math.abs(x - y * 0.85 - 38) < 4 || Math.abs(x - y * 0.85 - 70) < 2) color = mixColor(color, [225, 238, 230], 0.55);
+  if (speckle(x, y, 272, 0.985)) color = shade(color, -22);
+  return [...color, 255];
 });
