@@ -85,6 +85,8 @@ type VillageSnapshot = {
   stoneClusterPieces: number;
   treeBarkRidges: number;
   treeLeafDepthCards: number;
+  atlasTreeCards: number;
+  atlasTreeAlphaMaterials: number;
   pathTiles: number;
   fenceSegments: number;
   houseWallTextureMaterials: number;
@@ -194,6 +196,109 @@ async function readProjectileCount(page: Page): Promise<number> {
     if (!projectiles) throw new Error("Missing projectile system");
     return projectiles.projectiles.length;
   });
+}
+
+async function jumpAndAdvance(page: Page, frameCount: number): Promise<PlayerSnapshot & CameraSnapshot & { projectileCount: number }> {
+  return page.evaluate((frames) => {
+    const app = (globalThis as typeof globalThis & {
+      __KODU_APP__?: {
+        gameScene?: {
+          projectiles?: { projectiles: unknown[] };
+          input?: {
+            onKeyDown(event: KeyboardEvent): void;
+            onKeyUp(event: KeyboardEvent): void;
+          };
+          player?: {
+            footHeight: number;
+            isGrounded: boolean;
+            position: { x: number; y: number; z: number };
+            surfaceHeight: number;
+          };
+          scene?: {
+            activeCamera?: {
+              getTarget(): { y: number };
+              orthoLeft: number;
+              orthoRight: number;
+              position: { y: number };
+            };
+            getEngine(): { getRenderWidth(): number; getRenderHeight(): number };
+          };
+          update(deltaSeconds: number): void;
+        };
+      };
+    }).__KODU_APP__;
+    const gameScene = app?.gameScene;
+    const input = gameScene?.input;
+    const player = gameScene?.player;
+    const scene = gameScene?.scene;
+    const camera = scene?.activeCamera;
+    const projectiles = gameScene?.projectiles;
+    if (!gameScene || !input || !player || !scene || !camera || !projectiles) {
+      throw new Error("Missing jump simulation dependencies");
+    }
+    input.onKeyDown(new KeyboardEvent("keydown", {
+      code: "Space",
+      key: " ",
+      bubbles: true,
+      cancelable: true,
+    }));
+    for (let frame = 0; frame < frames; frame += 1) {
+      gameScene.update(1 / 60);
+    }
+    input.onKeyUp(new KeyboardEvent("keyup", {
+      code: "Space",
+      key: " ",
+      bubbles: true,
+      cancelable: true,
+    }));
+    return {
+      x: player.position.x,
+      y: player.position.y,
+      z: player.position.z,
+      footHeight: player.footHeight,
+      grounded: player.isGrounded,
+      surfaceHeight: player.surfaceHeight,
+      renderWidth: scene.getEngine().getRenderWidth(),
+      renderHeight: scene.getEngine().getRenderHeight(),
+      orthoLeft: Number(camera.orthoLeft),
+      orthoRight: Number(camera.orthoRight),
+      positionY: camera.position.y,
+      targetY: camera.getTarget().y,
+      projectileCount: projectiles.projectiles.length,
+    };
+  }, frameCount);
+}
+
+async function advanceGameFrames(page: Page, frameCount: number): Promise<PlayerSnapshot> {
+  return page.evaluate((frames) => {
+    const app = (globalThis as typeof globalThis & {
+      __KODU_APP__?: {
+        gameScene?: {
+          player?: {
+            footHeight: number;
+            isGrounded: boolean;
+            position: { x: number; y: number; z: number };
+            surfaceHeight: number;
+          };
+          update(deltaSeconds: number): void;
+        };
+      };
+    }).__KODU_APP__;
+    const gameScene = app?.gameScene;
+    const player = gameScene?.player;
+    if (!gameScene || !player) throw new Error("Missing game scene or player");
+    for (let frame = 0; frame < frames; frame += 1) {
+      gameScene.update(1 / 60);
+    }
+    return {
+      x: player.position.x,
+      y: player.position.y,
+      z: player.position.z,
+      footHeight: player.footHeight,
+      grounded: player.isGrounded,
+      surfaceHeight: player.surfaceHeight,
+    };
+  }, frameCount);
 }
 
 async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
@@ -357,6 +462,10 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
     const treeFoliageAlphaBlendMaterials = treeFoliageMaterials.filter((material) => (
       material.transparencyMode === 2
     ));
+    const atlasTreeAlphaMaterials = scene.materials.filter((material) => (
+      material.name.startsWith("mat-atlas-tree-")
+      && material.useAlphaFromDiffuseTexture
+    ));
     const repeatedAlphaMaterials = blendedTerrainMaterials.filter((material) => {
       const texture = (material as unknown as {
         diffuseTexture?: {
@@ -438,6 +547,8 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
       stoneClusterPieces: names.filter((name) => name.startsWith("stone-cluster-piece-")).length,
       treeBarkRidges: names.filter((name) => name.startsWith("tree-bark-ridge-")).length,
       treeLeafDepthCards: names.filter((name) => name.startsWith("tree-leaf-depth-card-")).length,
+      atlasTreeCards: names.filter((name) => name.startsWith("atlas-tree-card-")).length,
+      atlasTreeAlphaMaterials: atlasTreeAlphaMaterials.length,
       terrainGrounds: names.filter((name) => name === "terrain-heightmap-ground").length,
       terrainSandPatches: names.filter((name) => name.startsWith("terrain-patch-sand-")).length,
       terrainMeadowPatches: names.filter((name) => name.startsWith("terrain-patch-meadow-")).length,
@@ -636,6 +747,45 @@ async function waitForCameraReady(page: Page): Promise<void> {
 
 test("terrain image assets are served", async ({ page }) => {
   await page.goto("/");
+  const atlasPropAssets = [
+    "/assets/vegetation/atlas/tree-round-small.png",
+    "/assets/vegetation/atlas/tree-pine-small.png",
+    "/assets/vegetation/atlas/tree-pine-tall.png",
+    "/assets/vegetation/atlas/tree-canopy-small.png",
+    "/assets/vegetation/atlas/tree-canopy-medium.png",
+    "/assets/vegetation/atlas/tree-oak-large.png",
+    "/assets/vegetation/atlas/tree-pine-large.png",
+    "/assets/vegetation/atlas/tree-round-medium.png",
+    "/assets/vegetation/atlas/tree-fruit.png",
+    "/assets/vegetation/atlas/tree-yellow.png",
+    "/assets/vegetation/atlas/wood-stump.png",
+    "/assets/vegetation/atlas/wood-hollow-stump.png",
+    "/assets/vegetation/atlas/wood-log.png",
+    "/assets/vegetation/atlas/bush-green.png",
+    "/assets/vegetation/atlas/bush-white-flowers.png",
+    "/assets/vegetation/atlas/bush-red-flowers.png",
+    "/assets/vegetation/atlas/plant-spiky.png",
+    "/assets/vegetation/atlas/plant-leafy.png",
+    "/assets/vegetation/atlas/flower-daisy-white.png",
+    "/assets/vegetation/atlas/flower-yellow.png",
+    "/assets/vegetation/atlas/flower-red.png",
+    "/assets/vegetation/atlas/flower-pink.png",
+    "/assets/vegetation/atlas/flower-lavender.png",
+    "/assets/vegetation/atlas/flower-blue.png",
+    "/assets/vegetation/atlas/flower-yellow-small.png",
+    "/assets/vegetation/atlas/flower-clover-a.png",
+    "/assets/vegetation/atlas/flower-clover-b.png",
+    "/assets/vegetation/atlas/flower-clover-c.png",
+    "/assets/vegetation/atlas/flower-lily-pad.png",
+    "/assets/vegetation/atlas/plant-reeds.png",
+    "/assets/vegetation/atlas/rock-cluster-large.png",
+    "/assets/vegetation/atlas/rock-cluster-tall.png",
+    "/assets/vegetation/atlas/rock-scatter.png",
+    "/assets/vegetation/atlas/rock-small-a.png",
+    "/assets/vegetation/atlas/rock-small-b.png",
+    "/assets/vegetation/atlas/rock-moss-flat.png",
+    "/assets/vegetation/atlas/rock-moss-low.png",
+  ];
   const assets = [
     "/assets/terrain/heightmap-valley.png",
     "/assets/terrain/grass.png",
@@ -672,6 +822,7 @@ test("terrain image assets are served", async ({ page }) => {
     "/assets/textures/concept/pebbles.png",
     "/assets/textures/concept/trim-wood.png",
     "/assets/textures/concept/dark-dirt.png",
+    ...atlasPropAssets,
   ];
   for (const asset of assets) {
     const response = await page.request.get(asset);
@@ -691,9 +842,48 @@ test("terrain image assets are served", async ({ page }) => {
     image.src = asset;
   }))), assets);
 
-  for (const image of dimensions.filter(({ asset }) => asset !== "/assets/terrain/heightmap-valley.png")) {
+  for (const image of dimensions.filter(({ asset }) => !asset.startsWith("/assets/vegetation/atlas/") && asset !== "/assets/terrain/heightmap-valley.png")) {
     expect(image.width, `${image.asset} width`).toBeGreaterThanOrEqual(256);
     expect(image.height, `${image.asset} height`).toBeGreaterThanOrEqual(256);
+  }
+
+  for (const image of dimensions.filter(({ asset }) => asset.startsWith("/assets/vegetation/atlas/"))) {
+    expect(image.width, `${image.asset} width`).toBeGreaterThanOrEqual(16);
+    expect(image.height, `${image.asset} height`).toBeGreaterThanOrEqual(16);
+  }
+
+  const alphaStats = await page.evaluate(async (imageAssets) => Promise.all(imageAssets.map((asset) => new Promise<{
+    asset: string;
+    transparentPixels: number;
+    visiblePixels: number;
+  }>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const surface = document.createElement("canvas");
+      surface.width = image.naturalWidth;
+      surface.height = image.naturalHeight;
+      const context = surface.getContext("2d");
+      if (!context) {
+        reject(new Error(`Missing canvas context for ${asset}`));
+        return;
+      }
+      context.drawImage(image, 0, 0);
+      const data = context.getImageData(0, 0, surface.width, surface.height).data;
+      let transparentPixels = 0;
+      let visiblePixels = 0;
+      for (let index = 3; index < data.length; index += 4) {
+        if (data[index] === 0) transparentPixels += 1;
+        if (data[index] > 0) visiblePixels += 1;
+      }
+      resolve({ asset, transparentPixels, visiblePixels });
+    };
+    image.onerror = () => reject(new Error(`Could not load ${asset}`));
+    image.src = asset;
+  }))), atlasPropAssets);
+
+  for (const image of alphaStats) {
+    expect(image.transparentPixels, `${image.asset} transparent pixels`).toBeGreaterThan(0);
+    expect(image.visiblePixels, `${image.asset} visible pixels`).toBeGreaterThan(0);
   }
 });
 
@@ -748,39 +938,12 @@ test("space jumps without firing a projectile", async ({ page }) => {
   const before = await readPlayerSnapshot(page);
   expect(await readProjectileCount(page)).toBe(0);
 
-  await page.keyboard.down("Space");
-  let after: { grounded: boolean; y: number } | undefined;
-  try {
-    const jumpSample = await page.waitForFunction((startY) => {
-      const app = (globalThis as typeof globalThis & {
-        __KODU_APP__?: {
-          gameScene?: {
-            player?: {
-              isGrounded: boolean;
-              position: { y: number };
-            };
-          };
-        };
-      }).__KODU_APP__;
-      const player = app?.gameScene?.player;
-      if (!player || player.isGrounded || player.position.y <= startY + 0.08) return false;
-      return {
-        grounded: player.isGrounded,
-        y: player.position.y,
-      };
-    }, before.y);
-    after = await jumpSample.jsonValue() as { grounded: boolean; y: number };
-  } finally {
-    await page.keyboard.up("Space");
-  }
-
-  if (!after) throw new Error("Missing jump sample");
+  const after = await jumpAndAdvance(page, 1);
   expect(after.y).toBeGreaterThan(before.y + 0.08);
   expect(after.grounded).toBe(false);
-  expect(await readProjectileCount(page)).toBe(0);
+  expect(after.projectileCount).toBe(0);
 
-  await page.waitForTimeout(900);
-  const landed = await readPlayerSnapshot(page);
+  const landed = await advanceGameFrames(page, 90);
   expect(landed.grounded).toBe(true);
   expect(landed.footHeight).toBeCloseTo(0, 1);
 
@@ -796,163 +959,93 @@ test("camera ignores player jump height", async ({ page }) => {
   const before = await readCameraSnapshot(page);
   const playerBefore = await readPlayerSnapshot(page);
 
-  await page.keyboard.down("Space");
-
-  let during: CameraSnapshot & { playerY: number } | undefined;
-  try {
-    const jumpSample = await page.waitForFunction((startY) => {
-      const app = (globalThis as typeof globalThis & {
-        __KODU_APP__?: {
-          gameScene?: {
-            player?: {
-              position: { y: number };
-            };
-            scene?: {
-              activeCamera?: {
-                getTarget(): { y: number };
-                orthoLeft: number;
-                orthoRight: number;
-                position: { y: number };
-              };
-              getEngine(): { getRenderWidth(): number; getRenderHeight(): number };
-            };
-          };
-        };
-      }).__KODU_APP__;
-      const gameScene = app?.gameScene;
-      const player = gameScene?.player;
-      const scene = gameScene?.scene;
-      const camera = scene?.activeCamera;
-      if (!player || !scene || !camera || player.position.y <= startY + 0.35) return false;
-      return {
-        renderWidth: scene.getEngine().getRenderWidth(),
-        renderHeight: scene.getEngine().getRenderHeight(),
-        orthoLeft: Number(camera.orthoLeft),
-        orthoRight: Number(camera.orthoRight),
-        positionY: camera.position.y,
-        targetY: camera.getTarget().y,
-        playerY: player.position.y,
-      };
-    }, playerBefore.y);
-    during = await jumpSample.jsonValue() as CameraSnapshot & { playerY: number };
-  } finally {
-    await page.keyboard.up("Space");
-  }
-
-  if (!during) throw new Error("Missing camera jump sample");
-  expect(during.playerY).toBeGreaterThan(playerBefore.y + 0.35);
+  const during = await jumpAndAdvance(page, 5);
+  expect(during.y).toBeGreaterThan(playerBefore.y + 0.35);
   expect(during.targetY).toBeCloseTo(before.targetY, 2);
   expect(during.positionY).toBeCloseTo(before.positionY, 1);
 });
 
-test("renders village houses as tall blocking obstacles", async ({ page }) => {
+test("renders a sparse grass map with atlas tree cards", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#game-canvas")).toBeVisible();
 
   const village = await readVillageSnapshot(page);
   expect(village.terrainGrounds).toBe(1);
-  expect(village.terrainSandPatches).toBeGreaterThanOrEqual(2);
-  expect(village.terrainMeadowPatches).toBeGreaterThanOrEqual(4);
+  expect(village.terrainSandPatches).toBe(0);
+  expect(village.terrainMeadowPatches).toBe(0);
   expect(village.terrainRoadPatches).toBe(0);
-  expect(village.terrainMainRoads).toBe(1);
-  expect(village.terrainMainRoadVertices).toBeGreaterThanOrEqual(80);
-  expect(village.terrainMainRoadBounds).not.toBeNull();
-  expect(village.terrainMainRoadBounds!.minX).toBeLessThanOrEqual(-15);
-  expect(village.terrainMainRoadBounds!.maxX).toBeGreaterThanOrEqual(14);
-  expect(village.terrainMainRoadBounds!.minZ).toBeLessThanOrEqual(-10);
-  expect(village.terrainMainRoadBounds!.maxZ).toBeGreaterThanOrEqual(8);
-  expect(village.terrainRoadSpurs).toBeGreaterThanOrEqual(3);
+  expect(village.terrainMainRoads).toBe(0);
+  expect(village.terrainMainRoadVertices).toBe(0);
+  expect(village.terrainMainRoadBounds).toBeNull();
+  expect(village.terrainRoadSpurs).toBe(0);
   expect(village.terrainRectangularLayers).toBe(0);
-  expect(village.terrainPatchMinVertices).toBeGreaterThanOrEqual(9);
-  expect(village.terrainSandPatchMinVertices).toBeGreaterThanOrEqual(42);
-  expect(village.terrainSandTextureSource).toContain("/assets/terrain/sand.png");
-  expect(village.terrainTextureMaterials).toBeGreaterThanOrEqual(3);
-  expect(village.terrainAlphaBlendMaterials).toBeGreaterThanOrEqual(3);
-  expect(village.terrainRepeatedAlphaMaterials).toBeGreaterThanOrEqual(2);
+  expect(village.terrainPatchMinVertices).toBe(0);
+  expect(village.terrainSandPatchMinVertices).toBe(0);
   expect(village.terrainGrassDiffuse).not.toBeNull();
   expect(village.terrainGrassDiffuse!.r).toBeGreaterThanOrEqual(1.2);
   expect(village.terrainGrassDiffuse!.g).toBeGreaterThanOrEqual(1.24);
   expect(village.terrainGrassDiffuse!.b).toBeGreaterThanOrEqual(0.96);
-  expect(village.terrainRoadDiffuse).not.toBeNull();
-  expect(village.terrainRoadDiffuse!.r).toBeGreaterThanOrEqual(1.08);
-  expect(village.terrainRoadDiffuse!.g).toBeGreaterThanOrEqual(0.82);
-  expect(village.terrainRoadDiffuse!.b).toBeLessThanOrEqual(0.72);
-  expect(village.pathDirtDiffuse).not.toBeNull();
-  expect(village.pathDirtDiffuse!.r).toBeGreaterThanOrEqual(1.05);
-  expect(village.pathDirtDiffuse!.g).toBeGreaterThanOrEqual(0.78);
-  expect(village.pathDirtDiffuse!.b).toBeLessThanOrEqual(0.7);
-  expect(village.textureReliefMaterials).toBeGreaterThanOrEqual(9);
-  expect(village.conceptAtlasTextureMaterials).toBeGreaterThanOrEqual(3);
-  expect(village.conceptAtlasCoreMaterials).toBeLessThanOrEqual(3);
-  expect(village.conceptTileCoreMaterials).toBeGreaterThanOrEqual(12);
-  expect(village.vegetationAlphaMaterials).toBeGreaterThanOrEqual(3);
-  expect(village.treeTrunkBases).toBeGreaterThanOrEqual(5);
-  expect(village.treeRoots).toBeGreaterThanOrEqual(15);
-  expect(village.treeBranches).toBeGreaterThanOrEqual(10);
+  expect(village.treeTrunkBases).toBe(0);
+  expect(village.treeRoots).toBe(0);
+  expect(village.treeBranches).toBe(0);
   expect(village.treeCanopies).toBe(0);
   expect(village.treeLeafCards).toBe(0);
-  expect(village.treeLeafSprigs).toBeGreaterThanOrEqual(190);
+  expect(village.treeLeafSprigs).toBe(0);
   expect(village.treeLeafVolumes).toBe(0);
   expect(village.treeLeafVolumeVertices).toBe(0);
   expect(village.treeLeafShells).toBe(0);
   expect(village.treeStyleVariants).toBe(0);
-  expect(village.treeFoliageAlphaTestMaterials).toBeGreaterThanOrEqual(2);
-  expect(village.treeFoliageAlphaBlendMaterials).toBe(0);
   expect(village.extraFoliageShells).toBe(0);
-  expect(village.grassCards).toBeGreaterThanOrEqual(12);
-  expect(village.bushCards).toBeGreaterThanOrEqual(8);
-  expect(village.groundDetailClumps).toBeGreaterThanOrEqual(24);
-  expect(village.groundDetailClumps).toBeLessThanOrEqual(34);
-  expect(village.wildflowerCards).toBeGreaterThanOrEqual(12);
-  expect(village.wildflowerCards).toBeLessThanOrEqual(18);
-  expect(village.pebbleMeshes).toBeGreaterThanOrEqual(12);
-  expect(village.pebbleMeshes).toBeLessThanOrEqual(18);
-  expect(village.treeBaseClutter).toBeGreaterThanOrEqual(8);
+  expect(village.grassCards).toBe(0);
+  expect(village.bushCards).toBe(0);
+  expect(village.groundDetailClumps).toBe(0);
+  expect(village.wildflowerCards).toBe(0);
+  expect(village.pebbleMeshes).toBe(0);
+  expect(village.treeBaseClutter).toBe(0);
   expect(village.shadowGenerators).toBeGreaterThanOrEqual(1);
-  expect(village.shadowCasters).toBeGreaterThanOrEqual(20);
-  expect(village.shadowReceivers).toBeGreaterThanOrEqual(8);
+  expect(village.shadowCasters).toBeGreaterThanOrEqual(4);
+  expect(village.shadowReceivers).toBe(1);
   expect(village.skyLightIntensity).toBeGreaterThanOrEqual(0.82);
   expect(village.sunLightIntensity).toBeGreaterThanOrEqual(1);
   expect(village.mapBounds.maxX - village.mapBounds.minX).toBeGreaterThanOrEqual(32);
   expect(village.mapBounds.maxZ - village.mapBounds.minZ).toBeGreaterThanOrEqual(24);
-  expect(village.houseBodies).toBe(3);
-  expect(village.houseRoofs).toBe(3);
-  expect(village.houseDoors).toBe(3);
-  expect(village.houseWindows).toBeGreaterThanOrEqual(6);
-  expect(village.houseWindowFrames).toBeGreaterThanOrEqual(6);
-  expect(village.houseChimneys).toBe(3);
-  expect(village.houseRoofOverhangs).toBeGreaterThanOrEqual(6);
-  expect(village.houseRoofTiles).toBeLessThanOrEqual(8);
-  expect(village.houseFoundationStones).toBeLessThanOrEqual(12);
+  expect(village.houseBodies).toBe(0);
+  expect(village.houseRoofs).toBe(0);
+  expect(village.houseDoors).toBe(0);
+  expect(village.houseWindows).toBe(0);
+  expect(village.houseWindowFrames).toBe(0);
+  expect(village.houseChimneys).toBe(0);
+  expect(village.houseRoofOverhangs).toBe(0);
+  expect(village.houseRoofTiles).toBe(0);
+  expect(village.houseFoundationStones).toBe(0);
   expect(village.houseWallWeathering).toBe(0);
-  expect(village.houseRoofBattens).toBeLessThanOrEqual(9);
+  expect(village.houseRoofBattens).toBe(0);
   expect(village.houseRoofMoss).toBe(0);
-  expect(village.houseDoorHardware).toBeLessThanOrEqual(6);
-  expect(village.stoneClusterPieces).toBeGreaterThanOrEqual(10);
-  expect(village.treeBarkRidges).toBeGreaterThanOrEqual(18);
+  expect(village.houseDoorHardware).toBe(0);
+  expect(village.stoneClusterPieces).toBe(0);
+  expect(village.treeBarkRidges).toBe(0);
   expect(village.treeLeafDepthCards).toBe(0);
-  expect(village.houseWallTextureMaterials).toBeGreaterThanOrEqual(3);
-  expect(village.houseRoofTextureMaterials).toBeGreaterThanOrEqual(3);
+  expect(village.atlasTreeCards).toBe(3);
+  expect(village.atlasTreeAlphaMaterials).toBe(3);
   expect(village.pathTiles).toBe(0);
-  expect(village.fenceSegments).toBeGreaterThanOrEqual(4);
-  expect(village.houseObstacles).toHaveLength(3);
-  expect(village.houseRoadClearances).toHaveLength(3);
-  for (const house of village.houseRoadClearances) {
-    expect(house.clearance, `${house.name} should sit beside the main road`).toBeGreaterThan(0.28);
-  }
-  for (const obstacle of village.houseObstacles) {
-    expect(obstacle.topHeight).toBeGreaterThan(1.8);
-  }
+  expect(village.fenceSegments).toBe(0);
+  expect(village.houseObstacles).toHaveLength(0);
+  expect(village.houseRoadClearances).toHaveLength(0);
 });
 
-test("player can jump onto a rock obstacle", async ({ page }) => {
+test("player can jump onto a reachable test obstacle", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#game-canvas")).toBeVisible();
 
-  const rockWestTop = 0.63;
-  const rockWestMinX = -3.8;
-  const rockWestMaxX = -2.4;
+  const obstacleTop = 0.63;
+  const obstacleMinX = -3.8;
+  const obstacleMaxX = -2.4;
   const playerRadius = 0.42;
+  await addTestObstacle(page, {
+    name: "test-reachable-obstacle",
+    center: { x: -3.1, y: 0.315, z: -1.4 },
+    halfExtents: { x: 0.7, y: 0.315, z: 0.55 },
+  });
   const after = await page.evaluate(() => {
     const app = (globalThis as typeof globalThis & {
       __KODU_APP__?: {
@@ -1011,10 +1104,10 @@ test("player can jump onto a rock obstacle", async ({ page }) => {
   });
 
   expect(after.grounded).toBe(true);
-  expect(after.surfaceHeight).toBeCloseTo(rockWestTop, 1);
-  expect(after.footHeight).toBeCloseTo(rockWestTop, 1);
-  expect(after.x + playerRadius).toBeGreaterThan(rockWestMinX);
-  expect(after.x - playerRadius).toBeLessThan(rockWestMaxX);
+  expect(after.surfaceHeight).toBeCloseTo(obstacleTop, 1);
+  expect(after.footHeight).toBeCloseTo(obstacleTop, 1);
+  expect(after.x + playerRadius).toBeGreaterThan(obstacleMinX);
+  expect(after.x - playerRadius).toBeLessThan(obstacleMaxX);
 });
 
 test("player cannot land on an obstacle above jump reach", async ({ page }) => {

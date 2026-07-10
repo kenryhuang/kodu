@@ -1069,6 +1069,48 @@ function addFenceSegment(name: string, position: Vector3, length: number, rotati
   rail.material = materials.fenceWood;
 }
 
+function addAtlasTreeCards(scene: Scene, materials: CartoonMaterials): void {
+  const cameraFacingYaw = -0.76;
+  const trees = [
+    {
+      id: "oak-large",
+      x: -5.8,
+      z: -2.9,
+      width: 2.35,
+      height: 2.5,
+      material: materials.atlasTreeOakLarge,
+    },
+    {
+      id: "pine-small",
+      x: 5.9,
+      z: 3.4,
+      width: 1.05,
+      height: 1.45,
+      material: materials.atlasTreePineSmall,
+    },
+    {
+      id: "round-small",
+      x: 7.2,
+      z: -2.7,
+      width: 1.18,
+      height: 1.4,
+      material: materials.atlasTreeRoundSmall,
+    },
+  ] as const;
+
+  for (const tree of trees) {
+    addVegetationCard(
+      `atlas-tree-card-${tree.id}`,
+      new Vector3(tree.x, terrainVisualHeightAt(tree.x, tree.z) + tree.height * 0.5 + 0.03, tree.z),
+      tree.width,
+      tree.height,
+      cameraFacingYaw,
+      tree.material,
+      scene,
+    );
+  }
+}
+
 export function createDioramaMap(scene: Scene, materials: CartoonMaterials): DioramaMap {
   const terrain = MeshBuilder.CreateGroundFromHeightMap("terrain-heightmap-ground", "/assets/terrain/heightmap-valley.png", {
     width: 36,
@@ -1078,109 +1120,10 @@ export function createDioramaMap(scene: Scene, materials: CartoonMaterials): Dio
     maxHeight: 0.9,
   }, scene);
   terrain.material = materials.terrainGrass;
-
-  const edge = MeshBuilder.CreateBox("map-dark-edge", { width: 37, height: 0.42, depth: 29 }, scene);
-  edge.position.y = -0.42;
-  edge.material = materials.edge;
-
-  addTerrainPatch("terrain-patch-sand-south-east", new Vector3(9.6, terrainVisualHeightAt(9.6, -7.8) + 0.055, -7.8), 4.7, 2.9, -0.15, scene, materials.terrainSand, 0, 48);
-  addTerrainPatch("terrain-patch-sand-village-grove", new Vector3(3.8, terrainVisualHeightAt(3.8, -4.9) + 0.055, -4.9), 3.3, 2.1, -0.28, scene, materials.terrainSand, 1, 48);
-  addTerrainPatch("terrain-patch-meadow-west", new Vector3(-11.2, terrainVisualHeightAt(-11.2, 3.8) + 0.06, 3.8), 5.7, 3.4, 0.22, scene, materials.terrainMeadow, 1);
-  addTerrainPatch("terrain-patch-meadow-south", new Vector3(-1.2, terrainVisualHeightAt(-1.2, -7.55) + 0.06, -7.55), 6.4, 3.6, -0.08, scene, materials.terrainMeadow, 2);
-  addTerrainPatch("terrain-patch-meadow-north", new Vector3(2.35, terrainVisualHeightAt(2.35, 6.4) + 0.06, 6.4), 5.4, 3.2, 0.32, scene, materials.terrainMeadow, 0);
-  addTerrainPatch("terrain-patch-meadow-east", new Vector3(11.5, terrainVisualHeightAt(11.5, 0.2) + 0.06, 0.2), 5.3, 3.1, -0.38, scene, materials.terrainMeadow, 1);
-  addTerrainPatch("terrain-patch-meadow-south-east", new Vector3(8.2, terrainVisualHeightAt(8.2, -8.4) + 0.06, -8.4), 4.9, 2.8, 0.18, scene, materials.terrainMeadow, 2);
-  addRoadRibbon("terrain-road-main", [
-    { x: -17.4, z: -11.4, width: 1.28 },
-    { x: -11.2, z: -6.6, width: 1.42 },
-    { x: -5.6, z: -2.8, width: 1.18 },
-    { x: -0.8, z: 0.35, width: 1.52 },
-    { x: 4.8, z: 2.0, width: 1.34 },
-    { x: 10.2, z: 5.8, width: 1.18 },
-    { x: 17.4, z: 10.6, width: 1.42 },
-  ], scene, materials.terrainRoad);
-  addRoadRibbon("terrain-road-spur-north-house", [
-    { x: -0.8, z: 0.35, width: 0.72 },
-    { x: -1.55, z: 2.3, width: 0.64 },
-    { x: -2.25, z: 4.05, width: 0.52 },
-  ], scene, materials.pathDirt);
-  addRoadRibbon("terrain-road-spur-east-house", [
-    { x: 4.8, z: 2.0, width: 0.76 },
-    { x: 5.35, z: 3.8, width: 0.58 },
-    { x: 6.05, z: 5.4, width: 0.48 },
-  ], scene, materials.pathDirt);
-  addRoadRibbon("terrain-road-spur-south-west-house", [
-    { x: -5.6, z: -2.8, width: 0.82 },
-    { x: -6.45, z: -4.9, width: 0.58 },
-    { x: -7.1, z: -6.25, width: 0.48 },
-  ], scene, materials.pathDirt);
-
-  const obstacles = [
-    makeRockObstacle("rock-west", new Vector3(-3.1, 0.28, -1.4), new Vector3(0.7, 0.35, 0.55), scene, materials, 1),
-    makeRockObstacle("rock-east", new Vector3(3.2, 0.28, 1.2), new Vector3(0.65, 0.35, 0.55), scene, materials, 2),
-  ];
-  addStoneClusterPieces(scene, materials);
-
-  addHouse("house-north", new Vector3(-2.4, 0.95, 4.9), new Vector3(0.78, 0.95, 0.56), 0, {
-    wallVariant: 0,
-    roofVariant: 0,
-    doorX: 0,
-    doorWidth: 0.38,
-    chimneyX: 0.44,
-    chimneyZ: 0.08,
-    roofTileRows: 1,
-    windows: [
-      { id: "front-left", face: "front", along: -0.48, bottom: 0.58, width: 0.28, height: 0.28 },
-      { id: "front-right", face: "front", along: 0.48, bottom: 0.62, width: 0.28, height: 0.28 },
-      { id: "right-small", face: "right", along: 0.08, bottom: 0.66, width: 0.24, height: 0.24 },
-    ],
-  }, obstacles, scene, materials);
-  addHouse("house-south-west", new Vector3(-7.25, 0.95, -7.0), new Vector3(0.72, 0.95, 0.54), Math.PI / 2, {
-    wallVariant: 1,
-    roofVariant: 1,
-    doorX: -0.18,
-    doorWidth: 0.34,
-    chimneyX: -0.34,
-    chimneyZ: -0.06,
-    roofTileRows: 1,
-    windows: [
-      { id: "front-tall", face: "front", along: 0.32, bottom: 0.56, width: 0.26, height: 0.36 },
-      { id: "left-square", face: "left", along: -0.08, bottom: 0.64, width: 0.24, height: 0.24 },
-    ],
-  }, obstacles, scene, materials);
-  addHouse("house-east", new Vector3(6.25, 0.95, 6.25), new Vector3(0.76, 0.95, 0.56), -Math.PI / 2, {
-    wallVariant: 2,
-    roofVariant: 2,
-    doorX: 0.2,
-    doorWidth: 0.36,
-    chimneyX: 0.08,
-    chimneyZ: 0.22,
-    roofTileRows: 1,
-    windows: [
-      { id: "front-wide", face: "front", along: -0.36, bottom: 0.6, width: 0.36, height: 0.26 },
-      { id: "front-attic", face: "front", along: 0.36, bottom: 1.02, width: 0.24, height: 0.22 },
-      { id: "right-square", face: "right", along: -0.1, bottom: 0.62, width: 0.24, height: 0.24 },
-    ],
-  }, obstacles, scene, materials);
-
-  addTree("tree-north-west", terrainPosition(-4.8, 2.7), scene, materials, { scale: 1.05, yaw: 0.35, variant: "broad" });
-  addTree("tree-south-east", terrainPosition(6.55, -2.1), scene, materials, { scale: 0.95, yaw: -0.6, variant: "bent" });
-  addTree("tree-village-grove-a", terrainPosition(2.4, -3.95), scene, materials, { scale: 0.82, yaw: 1.25, variant: "tall" });
-  addTree("tree-village-grove-b", terrainPosition(7.4, 4.9), scene, materials, { scale: 1.1, yaw: -1.05, variant: "broad" });
-  addTree("tree-west-meadow", terrainPosition(-8.35, 0.85), scene, materials, { scale: 0.88, yaw: 2.1, variant: "tall" });
-  addTree("tree-south-meadow", terrainPosition(-1.7, -6.4), scene, materials, { scale: 1.18, yaw: 0.75, variant: "bent" });
-  addGroundVegetation(scene, materials);
-  addConceptGroundDetails(scene, materials);
-
-  addFenceSegment("fence-north-a", new Vector3(-2.35, 0.18, 2.42), 0.9, 0, scene, materials);
-  addFenceSegment("fence-north-b", new Vector3(-0.2, 0.18, 2.45), 0.75, 0, scene, materials);
-  addFenceSegment("fence-east-a", new Vector3(4.05, 0.18, 1.15), 0.8, Math.PI / 2, scene, materials);
-  addFenceSegment("fence-east-b", new Vector3(4.0, 0.18, 3.05), 0.85, Math.PI / 2, scene, materials);
-  addFenceSegment("fence-south-west-a", new Vector3(-5.95, 0.18, -2.25), 0.75, Math.PI / 2, scene, materials);
-  addFenceSegment("fence-south-west-b", new Vector3(-4.05, 0.18, -3.85), 0.75, 0, scene, materials);
+  addAtlasTreeCards(scene, materials);
 
   return {
     bounds: { minX: -17.2, maxX: 17.2, minZ: -13.2, maxZ: 13.2 },
-    obstacles,
+    obstacles: [],
   };
 }

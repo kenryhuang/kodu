@@ -95,6 +95,20 @@ export function createMaterials(scene: Scene) {
     return material;
   };
 
+  const makeAtlasTreeSprite = (
+    name: string,
+    url: string,
+    fallbackColor: Color3,
+  ): StandardMaterial => {
+    const material = makeAlphaTestTextured(name, url, fallbackColor, 0.1);
+    const texture = material.diffuseTexture as Texture | null;
+    if (texture) {
+      texture.vScale = -1;
+      texture.vOffset = 1;
+    }
+    return material;
+  };
+
   const makeHouseWall = (name: string, url: string, fallbackColor: Color3): StandardMaterial => {
     void url;
     const cleanColor = name.endsWith("mint")
@@ -207,6 +221,9 @@ export function createMaterials(scene: Scene) {
   const terrainSand = makeImageTextured("mat-terrain-sand", "/assets/terrain/sand.png", new Color3(0.78, 0.6, 0.34), 1.0, 1.0, true, 0.025);
   terrainSand.diffuseColor = new Color3(1.18, 1.02, 0.76);
   terrainSand.emissiveColor = new Color3(0.08, 0.055, 0.028);
+  const atlasTreeOakLarge = makeAtlasTreeSprite("mat-atlas-tree-oak-large", "/assets/vegetation/atlas/tree-oak-large.png", new Color3(0.42, 0.66, 0.28));
+  const atlasTreePineSmall = makeAtlasTreeSprite("mat-atlas-tree-pine-small", "/assets/vegetation/atlas/tree-pine-small.png", new Color3(0.32, 0.58, 0.28));
+  const atlasTreeRoundSmall = makeAtlasTreeSprite("mat-atlas-tree-round-small", "/assets/vegetation/atlas/tree-round-small.png", new Color3(0.42, 0.68, 0.3));
 
   return {
     grass: make("mat-grass", new Color3(0.42, 0.72, 0.36)),
@@ -243,6 +260,9 @@ export function createMaterials(scene: Scene) {
     treeTopLight: make("mat-tree-top-light", new Color3(0.47, 0.72, 0.34)),
     treeLeafMask: makeAlphaTestTextured("mat-tree-leaf-mask", "/assets/vegetation/tree-leaves.png", new Color3(0.42, 0.74, 0.36), 0.38),
     treeLeafShell: makeAlphaTestTextured("mat-tree-leaf-shell", "/assets/vegetation/tree-leaf-shell.png", new Color3(0.5, 0.8, 0.42), 0.4),
+    atlasTreeOakLarge,
+    atlasTreePineSmall,
+    atlasTreeRoundSmall,
     treeLeavesCard: makeImageTextured("mat-tree-leaves-card", "/assets/vegetation/tree-leaves.png", new Color3(0.42, 0.74, 0.36), 1, 1, true),
     bushCard: makeImageTextured("mat-bush-card", "/assets/vegetation/bush.png", new Color3(0.44, 0.74, 0.36), 1, 1, true),
     grassCard: makeImageTextured("mat-grass-card", "/assets/vegetation/grass-card.png", new Color3(0.48, 0.72, 0.34), 1, 1, true),
