@@ -747,6 +747,7 @@ async function waitForCameraReady(page: Page): Promise<void> {
 
 test("terrain image assets are served", async ({ page }) => {
   await page.goto("/");
+  const seamlessGrassAsset = "/assets/terrain/atlas/grass/grass-seamless-blended.png";
   const atlasTerrainAssets = [
     "/assets/terrain/atlas/grass/grass-flat.png",
     "/assets/terrain/atlas/grass/grass-flat-yellow.png",
@@ -908,6 +909,7 @@ test("terrain image assets are served", async ({ page }) => {
     "/assets/textures/concept/pebbles.png",
     "/assets/textures/concept/trim-wood.png",
     "/assets/textures/concept/dark-dirt.png",
+    seamlessGrassAsset,
     ...atlasAssets,
   ];
   for (const asset of assets) {
@@ -937,6 +939,13 @@ test("terrain image assets are served", async ({ page }) => {
     expect(image.width, `${image.asset} width`).toBeGreaterThanOrEqual(16);
     expect(image.height, `${image.asset} height`).toBeGreaterThanOrEqual(16);
   }
+
+  const seamlessGrassDimensions = dimensions.find(({ asset }) => asset === seamlessGrassAsset);
+  expect(seamlessGrassDimensions).toEqual({
+    asset: seamlessGrassAsset,
+    width: 512,
+    height: 512,
+  });
 
   const waterTileMaximumHeights = new Map([
     ["/assets/terrain/atlas/water/water-pond-large.png", 205],
@@ -983,6 +992,51 @@ test("terrain image assets are served", async ({ page }) => {
   for (const image of alphaStats) {
     expect(image.transparentPixels, `${image.asset} transparent pixels`).toBeGreaterThan(0);
     expect(image.visiblePixels, `${image.asset} visible pixels`).toBeGreaterThan(0);
+  }
+
+  const seamStats = await page.evaluate(async (asset) => new Promise<{
+    leftRight: [number, number, number];
+    topBottom: [number, number, number];
+  }>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const surface = document.createElement("canvas");
+      surface.width = image.naturalWidth;
+      surface.height = image.naturalHeight;
+      const context = surface.getContext("2d");
+      if (!context) {
+        reject(new Error(`Missing canvas context for ${asset}`));
+        return;
+      }
+      context.drawImage(image, 0, 0);
+      const data = context.getImageData(0, 0, surface.width, surface.height).data;
+      const leftRight: [number, number, number] = [0, 0, 0];
+      const topBottom: [number, number, number] = [0, 0, 0];
+      for (let y = 0; y < surface.height; y += 1) {
+        const leftIndex = y * surface.width * 4;
+        const rightIndex = (y * surface.width + surface.width - 1) * 4;
+        for (let channel = 0; channel < 3; channel += 1) {
+          leftRight[channel] += Math.abs(data[leftIndex + channel] - data[rightIndex + channel]);
+        }
+      }
+      for (let x = 0; x < surface.width; x += 1) {
+        const topIndex = x * 4;
+        const bottomIndex = ((surface.height - 1) * surface.width + x) * 4;
+        for (let channel = 0; channel < 3; channel += 1) {
+          topBottom[channel] += Math.abs(data[topIndex + channel] - data[bottomIndex + channel]);
+        }
+      }
+      resolve({
+        leftRight: leftRight.map((difference) => difference / surface.height) as [number, number, number],
+        topBottom: topBottom.map((difference) => difference / surface.width) as [number, number, number],
+      });
+    };
+    image.onerror = () => reject(new Error(`Could not load ${asset}`));
+    image.src = asset;
+  }), seamlessGrassAsset);
+
+  for (const difference of [...seamStats.leftRight, ...seamStats.topBottom]) {
+    expect(difference).toBeLessThanOrEqual(2);
   }
 });
 
