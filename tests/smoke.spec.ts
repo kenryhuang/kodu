@@ -747,6 +747,91 @@ async function waitForCameraReady(page: Page): Promise<void> {
 
 test("terrain image assets are served", async ({ page }) => {
   await page.goto("/");
+  const atlasTerrainAssets = [
+    "/assets/terrain/atlas/grass/grass-flat.png",
+    "/assets/terrain/atlas/grass/grass-flat-yellow.png",
+    "/assets/terrain/atlas/grass/grass-flat-yellow-flowers.png",
+    "/assets/terrain/atlas/grass/grass-flat-white-flowers.png",
+    "/assets/terrain/atlas/grass/grass-cliff-block-wide.png",
+    "/assets/terrain/atlas/grass/grass-cliff-block-small.png",
+    "/assets/terrain/atlas/grass/grass-cliff-block-medium-a.png",
+    "/assets/terrain/atlas/grass/grass-cliff-block-medium-b.png",
+    "/assets/terrain/atlas/grass/grass-cliff-block-narrow-a.png",
+    "/assets/terrain/atlas/grass/grass-cliff-block-narrow-b.png",
+    "/assets/terrain/atlas/grass/grass-cliff-corner-large.png",
+    "/assets/terrain/atlas/grass/grass-cliff-edge-narrow-a.png",
+    "/assets/terrain/atlas/grass/grass-cliff-edge-medium-a.png",
+    "/assets/terrain/atlas/grass/grass-cliff-corner-small-a.png",
+    "/assets/terrain/atlas/grass/grass-cliff-corner-small-b.png",
+    "/assets/terrain/atlas/grass/grass-cliff-edge-wide-a.png",
+    "/assets/terrain/atlas/grass/grass-cliff-corner-wide-a.png",
+    "/assets/terrain/atlas/grass/grass-cliff-edge-medium-b.png",
+    "/assets/terrain/atlas/grass/grass-cliff-corner-wide-b.png",
+    "/assets/terrain/atlas/grass/grass-cliff-edge-wide-b.png",
+    "/assets/terrain/atlas/grass/grass-cliff-edge-narrow-b.png",
+    "/assets/terrain/atlas/grass/grass-cliff-edge-medium-c.png",
+    "/assets/terrain/atlas/grass/grass-cliff-block-medium-c.png",
+    "/assets/terrain/atlas/grass/grass-dirt-patch-a.png",
+    "/assets/terrain/atlas/grass/grass-dirt-patch-b.png",
+    "/assets/terrain/atlas/grass/grass-flowers-red.png",
+    "/assets/terrain/atlas/grass/grass-flowers-white-a.png",
+    "/assets/terrain/atlas/grass/grass-flowers-white-b.png",
+    "/assets/terrain/atlas/grass/grass-dirt-stones-a.png",
+    "/assets/terrain/atlas/grass/grass-dirt-circle.png",
+    "/assets/terrain/atlas/grass/grass-dirt-stones-b.png",
+    "/assets/terrain/atlas/grass/grass-rocks-small.png",
+    "/assets/terrain/atlas/grass/grass-rocks-large.png",
+    "/assets/terrain/atlas/grass/grass-flowers-white-c.png",
+    "/assets/terrain/atlas/grass/grass-flowers-yellow.png",
+    "/assets/terrain/atlas/road/road-straight-vertical-wide.png",
+    "/assets/terrain/atlas/road/road-square-small.png",
+    "/assets/terrain/atlas/road/road-straight-horizontal-wide.png",
+    "/assets/terrain/atlas/road/road-vertical-a.png",
+    "/assets/terrain/atlas/road/road-vertical-b.png",
+    "/assets/terrain/atlas/road/road-rectangle-wide.png",
+    "/assets/terrain/atlas/road/road-vertical-narrow-a.png",
+    "/assets/terrain/atlas/road/road-corner-east.png",
+    "/assets/terrain/atlas/road/road-corner-west.png",
+    "/assets/terrain/atlas/road/road-vertical-narrow-b.png",
+    "/assets/terrain/atlas/road/road-end-round.png",
+    "/assets/terrain/atlas/road/road-vertical-narrow-c.png",
+    "/assets/terrain/atlas/road/road-t-junction-a.png",
+    "/assets/terrain/atlas/road/road-t-junction-b.png",
+    "/assets/terrain/atlas/road/road-t-junction-wide-a.png",
+    "/assets/terrain/atlas/road/road-t-junction-c.png",
+    "/assets/terrain/atlas/road/road-t-junction-wide-b.png",
+    "/assets/terrain/atlas/road/road-clearing-round-a.png",
+    "/assets/terrain/atlas/road/road-clearing-round-b.png",
+    "/assets/terrain/atlas/road/road-rectangle-small.png",
+    "/assets/terrain/atlas/road/road-corner-large.png",
+    "/assets/terrain/atlas/water/water-river-vertical-tall.png",
+    "/assets/terrain/atlas/water/water-river-straight-wide.png",
+    "/assets/terrain/atlas/water/water-river-inlets.png",
+    "/assets/terrain/atlas/water/water-river-corner-a.png",
+    "/assets/terrain/atlas/water/water-river-corner-wide.png",
+    "/assets/terrain/atlas/water/water-river-corner-small-a.png",
+    "/assets/terrain/atlas/water/water-river-corner-b.png",
+    "/assets/terrain/atlas/water/water-river-corner-small-b.png",
+    "/assets/terrain/atlas/water/waterfall-pool-small.png",
+    "/assets/terrain/atlas/water/water-pond-large.png",
+    "/assets/terrain/atlas/water/water-river-junction-a.png",
+    "/assets/terrain/atlas/water/water-river-junction-b.png",
+    "/assets/terrain/atlas/water/water-river-u-bend-a.png",
+    "/assets/terrain/atlas/water/water-river-u-bend-b.png",
+    "/assets/terrain/atlas/water/water-river-t-waterfall.png",
+    "/assets/terrain/atlas/water/water-pond-small.png",
+    "/assets/terrain/atlas/water/waterfall-small.png",
+    "/assets/terrain/atlas/water/water-river-straight-narrow.png",
+    "/assets/terrain/atlas/water/water-shoreline-a.png",
+    "/assets/terrain/atlas/water/water-shoreline-b.png",
+    "/assets/terrain/atlas/water/water-shoreline-c.png",
+    "/assets/terrain/atlas/water/water-shoreline-d.png",
+    "/assets/terrain/atlas/water/water-shoreline-e.png",
+    "/assets/terrain/atlas/water/water-bridge.png",
+    "/assets/terrain/atlas/water/water-river-pool-wide.png",
+    "/assets/terrain/atlas/water/waterfall-wide.png",
+    "/assets/terrain/atlas/water/waterfall-narrow.png",
+  ];
   const atlasPropAssets = [
     "/assets/vegetation/atlas/tree-round-small.png",
     "/assets/vegetation/atlas/tree-pine-small.png",
@@ -786,6 +871,7 @@ test("terrain image assets are served", async ({ page }) => {
     "/assets/vegetation/atlas/rock-moss-flat.png",
     "/assets/vegetation/atlas/rock-moss-low.png",
   ];
+  const atlasAssets = [...atlasTerrainAssets, ...atlasPropAssets];
   const assets = [
     "/assets/terrain/heightmap-valley.png",
     "/assets/terrain/grass.png",
@@ -822,7 +908,7 @@ test("terrain image assets are served", async ({ page }) => {
     "/assets/textures/concept/pebbles.png",
     "/assets/textures/concept/trim-wood.png",
     "/assets/textures/concept/dark-dirt.png",
-    ...atlasPropAssets,
+    ...atlasAssets,
   ];
   for (const asset of assets) {
     const response = await page.request.get(asset);
@@ -842,14 +928,27 @@ test("terrain image assets are served", async ({ page }) => {
     image.src = asset;
   }))), assets);
 
-  for (const image of dimensions.filter(({ asset }) => !asset.startsWith("/assets/vegetation/atlas/") && asset !== "/assets/terrain/heightmap-valley.png")) {
+  for (const image of dimensions.filter(({ asset }) => !atlasAssets.includes(asset) && asset !== "/assets/terrain/heightmap-valley.png")) {
     expect(image.width, `${image.asset} width`).toBeGreaterThanOrEqual(256);
     expect(image.height, `${image.asset} height`).toBeGreaterThanOrEqual(256);
   }
 
-  for (const image of dimensions.filter(({ asset }) => asset.startsWith("/assets/vegetation/atlas/"))) {
+  for (const image of dimensions.filter(({ asset }) => atlasAssets.includes(asset))) {
     expect(image.width, `${image.asset} width`).toBeGreaterThanOrEqual(16);
     expect(image.height, `${image.asset} height`).toBeGreaterThanOrEqual(16);
+  }
+
+  const waterTileMaximumHeights = new Map([
+    ["/assets/terrain/atlas/water/water-pond-large.png", 205],
+    ["/assets/terrain/atlas/water/water-pond-small.png", 80],
+    ["/assets/terrain/atlas/water/waterfall-small.png", 85],
+    ["/assets/terrain/atlas/water/water-river-straight-narrow.png", 85],
+  ]);
+  for (const image of dimensions) {
+    const maximumHeight = waterTileMaximumHeights.get(image.asset);
+    if (maximumHeight !== undefined) {
+      expect(image.height, `${image.asset} excludes the next atlas row`).toBeLessThanOrEqual(maximumHeight);
+    }
   }
 
   const alphaStats = await page.evaluate(async (imageAssets) => Promise.all(imageAssets.map((asset) => new Promise<{
@@ -879,7 +978,7 @@ test("terrain image assets are served", async ({ page }) => {
     };
     image.onerror = () => reject(new Error(`Could not load ${asset}`));
     image.src = asset;
-  }))), atlasPropAssets);
+  }))), atlasAssets);
 
   for (const image of alphaStats) {
     expect(image.transparentPixels, `${image.asset} transparent pixels`).toBeGreaterThan(0);
