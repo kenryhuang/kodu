@@ -1120,6 +1120,17 @@ export function createDioramaMap(scene: Scene, materials: CartoonMaterials): Dio
     maxHeight: 0.9,
   }, scene);
   terrain.material = materials.terrainGrass;
+  addRoadRibbon("terrain-road-main", [
+    { x: -18, z: -10.5, width: 2.3 },
+    { x: -12, z: -8.1, width: 2.45 },
+    { x: -8, z: -6.4, width: 2.35 },
+    { x: -3, z: -5.2, width: 2.55 },
+    { x: 0, z: -1.2, width: 2.7 },
+    { x: 4, z: -0.4, width: 2.5 },
+    { x: 8, z: 0, width: 2.25 },
+    { x: 12, z: 4.5, width: 2.4 },
+    { x: 18, z: 8.8, width: 2.3 },
+  ], scene, materials.terrainRoad);
   addAtlasTreeCards(scene, materials);
 
   return {

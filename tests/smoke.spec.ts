@@ -774,6 +774,7 @@ test("terrain image assets are served", async ({ page }) => {
   await page.goto("/");
   const seamlessGrassAsset = "/assets/terrain/atlas/grass/grass-seamless-blended.png";
   const atlasTerrainAssets = [
+    "/assets/terrain/atlas/road/road-ribbon-seamless.png",
     "/assets/terrain/atlas/grass/grass-flat.png",
     "/assets/terrain/atlas/grass/grass-flat-yellow.png",
     "/assets/terrain/atlas/grass/grass-flat-yellow-flowers.png",
@@ -971,6 +972,11 @@ test("terrain image assets are served", async ({ page }) => {
     width: 512,
     height: 512,
   });
+  expect(dimensions.find(({ asset }) => asset === "/assets/terrain/atlas/road/road-ribbon-seamless.png")).toEqual({
+    asset: "/assets/terrain/atlas/road/road-ribbon-seamless.png",
+    width: 256,
+    height: 512,
+  });
 
   const waterTileMaximumHeights = new Map([
     ["/assets/terrain/atlas/water/water-pond-large.png", 205],
@@ -1063,6 +1069,31 @@ test("terrain image assets are served", async ({ page }) => {
   for (const difference of [...seamStats.leftRight, ...seamStats.topBottom]) {
     expect(difference).toBeLessThanOrEqual(2);
   }
+
+  const roadSeamStats = await page.evaluate(async (asset) => new Promise<number[]>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const surface = document.createElement("canvas");
+      surface.width = image.naturalWidth;
+      surface.height = image.naturalHeight;
+      const context = surface.getContext("2d");
+      if (!context) return reject(new Error(`Missing canvas context for ${asset}`));
+      context.drawImage(image, 0, 0);
+      const data = context.getImageData(0, 0, surface.width, surface.height).data;
+      const differences = [0, 0, 0, 0];
+      for (let x = 0; x < surface.width; x += 1) {
+        const top = x * 4;
+        const bottom = ((surface.height - 1) * surface.width + x) * 4;
+        for (let channel = 0; channel < 4; channel += 1) {
+          differences[channel] += Math.abs(data[top + channel] - data[bottom + channel]);
+        }
+      }
+      resolve(differences.map((difference) => difference / surface.width));
+    };
+    image.onerror = () => reject(new Error(`Could not load ${asset}`));
+    image.src = asset;
+  }), "/assets/terrain/atlas/road/road-ribbon-seamless.png");
+  for (const difference of roadSeamStats) expect(difference).toBeLessThanOrEqual(2);
 });
 
 test("renders the game and fires a projectile", async ({ page }) => {
@@ -1152,9 +1183,11 @@ test("renders a sparse grass map with atlas tree cards", async ({ page }) => {
   expect(village.terrainSandPatches).toBe(0);
   expect(village.terrainMeadowPatches).toBe(0);
   expect(village.terrainRoadPatches).toBe(0);
-  expect(village.terrainMainRoads).toBe(0);
-  expect(village.terrainMainRoadVertices).toBe(0);
-  expect(village.terrainMainRoadBounds).toBeNull();
+  expect(village.terrainMainRoads).toBe(1);
+  expect(village.terrainMainRoadVertices).toBeGreaterThanOrEqual(120);
+  expect(village.terrainMainRoadBounds).not.toBeNull();
+  expect(village.terrainMainRoadBounds!.maxX - village.terrainMainRoadBounds!.minX).toBeGreaterThanOrEqual(32);
+  expect(village.terrainMainRoadBounds!.maxZ - village.terrainMainRoadBounds!.minZ).toBeGreaterThanOrEqual(17);
   expect(village.terrainRoadSpurs).toBe(0);
   expect(village.terrainRectangularLayers).toBe(0);
   expect(village.terrainPatchMinVertices).toBe(0);
@@ -1186,7 +1219,7 @@ test("renders a sparse grass map with atlas tree cards", async ({ page }) => {
   expect(village.treeBaseClutter).toBe(0);
   expect(village.shadowGenerators).toBeGreaterThanOrEqual(1);
   expect(village.shadowCasters).toBeGreaterThanOrEqual(4);
-  expect(village.shadowReceivers).toBe(1);
+  expect(village.shadowReceivers).toBe(2);
   expect(village.skyLightIntensity).toBeGreaterThanOrEqual(0.82);
   expect(village.sunLightIntensity).toBeGreaterThanOrEqual(1);
   expect(village.mapBounds.maxX - village.mapBounds.minX).toBeGreaterThanOrEqual(32);
