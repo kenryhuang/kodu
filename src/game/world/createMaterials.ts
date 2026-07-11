@@ -205,7 +205,15 @@ export function createMaterials(scene: Scene) {
     makeHouseRoof("mat-house-roof-teal", "/assets/textures/roof-tiles-teal.png", new Color3(0.22, 0.42, 0.42)),
     makeHouseRoof("mat-house-roof-violet", "/assets/textures/roof-tiles-violet.png", new Color3(0.38, 0.32, 0.48)),
   ];
-  const terrainGrass = makeImageTextured("mat-terrain-grass", "/assets/textures/concept/grass.png", new Color3(0.7, 0.86, 0.38), 7, 6, false, 0.07);
+  const terrainGrass = makeImageTextured(
+    "mat-terrain-grass",
+    "/assets/terrain/atlas/grass/grass-seamless-blended.png",
+    new Color3(0.7, 0.86, 0.38),
+    4.5,
+    3.5,
+    false,
+    0.07,
+  );
   terrainGrass.diffuseColor = new Color3(1.24, 1.3, 1.0);
   terrainGrass.emissiveColor = new Color3(0.1, 0.14, 0.055);
   terrainGrass.ambientColor = new Color3(0.58, 0.66, 0.36);

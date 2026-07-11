@@ -96,6 +96,12 @@ type VillageSnapshot = {
     g: number;
     b: number;
   } | null;
+  terrainGrassDiffuseTextureSource: string | null;
+  terrainGrassBumpTextureSource: string | null;
+  terrainGrassTextureScale: {
+    u: number;
+    v: number;
+  } | null;
   terrainRoadDiffuse: {
     r: number;
     g: number;
@@ -332,10 +338,17 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
               transparencyMode?: number | null;
               useAlphaFromDiffuseTexture?: boolean;
               needAlphaTesting?: () => boolean;
-              bumpTexture?: unknown;
+              bumpTexture?: {
+                name?: string;
+                url?: string;
+                uScale?: number;
+                vScale?: number;
+              } | null;
               diffuseTexture?: {
                 name?: string;
                 url?: string;
+                uScale?: number;
+                vScale?: number;
               } | null;
               diffuseColor?: {
                 r: number;
@@ -609,6 +622,18 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
       houseWallTextureMaterials: materialNames.filter((name) => name.startsWith("mat-house-wall-")).length,
       houseRoofTextureMaterials: materialNames.filter((name) => name.startsWith("mat-house-roof-")).length,
       terrainGrassDiffuse: colorSnapshot(terrainGrassMaterial),
+      terrainGrassDiffuseTextureSource: terrainGrassMaterial?.diffuseTexture
+        ? terrainGrassMaterial.diffuseTexture.url ?? terrainGrassMaterial.diffuseTexture.name ?? null
+        : null,
+      terrainGrassBumpTextureSource: terrainGrassMaterial?.bumpTexture
+        ? terrainGrassMaterial.bumpTexture.url ?? terrainGrassMaterial.bumpTexture.name ?? null
+        : null,
+      terrainGrassTextureScale: terrainGrassMaterial?.diffuseTexture
+        ? {
+            u: terrainGrassMaterial.diffuseTexture.uScale ?? 1,
+            v: terrainGrassMaterial.diffuseTexture.vScale ?? 1,
+          }
+        : null,
       terrainRoadDiffuse: colorSnapshot(terrainRoadMaterial),
       pathDirtDiffuse: colorSnapshot(pathDirtMaterial),
       houseObstacles,
@@ -1138,6 +1163,10 @@ test("renders a sparse grass map with atlas tree cards", async ({ page }) => {
   expect(village.terrainGrassDiffuse!.r).toBeGreaterThanOrEqual(1.2);
   expect(village.terrainGrassDiffuse!.g).toBeGreaterThanOrEqual(1.24);
   expect(village.terrainGrassDiffuse!.b).toBeGreaterThanOrEqual(0.96);
+  expect(village.terrainGrassDiffuseTextureSource).toContain("/assets/terrain/atlas/grass/grass-seamless-blended.png");
+  expect(village.terrainGrassBumpTextureSource).toContain("/assets/terrain/atlas/grass/grass-seamless-blended.png");
+  expect(village.terrainGrassTextureScale?.u).toBeCloseTo(4.5, 5);
+  expect(village.terrainGrassTextureScale?.v).toBeCloseTo(3.5, 5);
   expect(village.treeTrunkBases).toBe(0);
   expect(village.treeRoots).toBe(0);
   expect(village.treeBranches).toBe(0);
