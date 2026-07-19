@@ -52,4 +52,3 @@ LEGACY_SIZES = {
     "road-rectangle-small": (86, 66),
     "road-corner-large": (77, 88),
 }
-
