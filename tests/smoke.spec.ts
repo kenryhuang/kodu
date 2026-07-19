@@ -30,6 +30,8 @@ type VillageSnapshot = {
   terrainMainRoadMaxHeightGap: number;
   terrainMainRoadCrownHeight: number;
   terrainMainRoadMaxShoulderGap: number;
+  terrainMainRoadInnerShoulderRise: number;
+  terrainMainRoadMinNormalY: number;
   terrainMainRoadMaxUvEdgeDelta: number;
   terrainMainRoadBounds: {
     minX: number;
@@ -69,6 +71,12 @@ type VillageSnapshot = {
   groundDetailClumps: number;
   wildflowerCards: number;
   pebbleMeshes: number;
+  roadReliefPebbles: number;
+  roadReliefShoulderChunks: number;
+  roadReliefVertices: number;
+  roadReliefShadowReceivers: number;
+  roadReliefShadowCasters: number;
+  roadReliefCollisionEntries: number;
   treeBaseClutter: number;
   shadowGenerators: number;
   shadowCasters: number;
@@ -351,7 +359,7 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
               intensity?: number;
               getShadowGenerator?: () => {
                 getShadowMap?: () => {
-                  renderList?: unknown[];
+                  renderList?: Array<{ name?: string }>;
                 } | null;
               } | null;
             }>;
@@ -481,22 +489,31 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
     });
     const shadowMaps = (scene.lights ?? [])
       .map((light) => light.getShadowGenerator?.()?.getShadowMap?.())
-      .filter((shadowMap): shadowMap is { renderList?: unknown[] } => Boolean(shadowMap));
+      .filter((shadowMap): shadowMap is { renderList?: Array<{ name?: string }> } => Boolean(shadowMap));
     const shadowCasters = shadowMaps.reduce((sum, shadowMap) => sum + (shadowMap.renderList?.length ?? 0), 0);
+    const roadReliefShadowCasters = shadowMaps.reduce(
+      (sum, shadowMap) => sum + (shadowMap.renderList?.filter((mesh) => mesh.name?.startsWith("road-relief-")).length ?? 0),
+      0,
+    );
     const skyLightIntensity = scene.lights?.find((light) => light.name === "sky-light")?.intensity ?? 0;
     const sunLightIntensity = scene.lights?.find((light) => light.name === "sun-light")?.intensity ?? 0;
     const mainRoad = scene.meshes.find((mesh) => mesh.name === "terrain-road-main");
     const terrainGround = scene.meshes.find((mesh) => mesh.name === "terrain-heightmap-ground");
     const mainRoadBox = mainRoad?.getBoundingInfo().boundingBox;
     const mainRoadPositions = mainRoad?.getVerticesData("position") ?? [];
+    const mainRoadNormals = mainRoad?.getVerticesData("normal") ?? [];
     const mainRoadUvs = mainRoad?.getVerticesData("uv") ?? [];
     const mainRoadUs = Array.from({ length: mainRoadUvs.length / 2 }, (_, index) => mainRoadUvs[index * 2]);
     const mainRoadCrossWidthSamples = mainRoadUs.findIndex((u, index) => index > 0 && u <= mainRoadUs[index - 1]);
     const mainRoadRowSize = mainRoadCrossWidthSamples > 0 ? mainRoadCrossWidthSamples : mainRoadUs.length;
+    const terrainMainRoadMinNormalY = mainRoadNormals.length > 0
+      ? Math.min(...Array.from({ length: mainRoadNormals.length / 3 }, (_, index) => mainRoadNormals[index * 3 + 1]))
+      : -1;
     const mainRoadCenters: Array<{ x: number; z: number }> = [];
     let mainRoadMaxHeightGap = 0;
     let terrainMainRoadCrownHeight = 0;
     let terrainMainRoadMaxShoulderGap = 0;
+    let terrainMainRoadInnerShoulderRise = 0;
     let mainRoadMaxUvEdgeDelta = 0;
     for (let vertex = 0; vertex < mainRoadPositions.length / 3; vertex += 1) {
       const position = vertex * 3;
@@ -529,6 +546,11 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
         terrainMainRoadMaxShoulderGap,
         Math.abs(offsets[0]),
         Math.abs(offsets[offsets.length - 1]),
+      );
+      const innerShoulder = (offsets[1] + offsets[offsets.length - 2]) * 0.5;
+      terrainMainRoadInnerShoulderRise = Math.max(
+        terrainMainRoadInnerShoulderRise,
+        innerShoulder - shoulder,
       );
     }
     for (let vertex = 0; vertex < mainRoadPositions.length / 3; vertex += mainRoadRowSize) {
@@ -603,6 +625,7 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
     const terrainSandPatchVertexCounts = scene.meshes
       .filter((mesh) => mesh.name.startsWith("terrain-patch-sand-"))
       .map((mesh) => mesh.getTotalVertices());
+    const roadReliefMeshes = scene.meshes.filter((mesh) => mesh.name.startsWith("road-relief-"));
     const houseObstacles = map.obstacles
       .filter((obstacle) => obstacle.name.startsWith("house-") && obstacle.name.endsWith("-body"))
       .map((obstacle) => ({
@@ -682,6 +705,8 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
       terrainMainRoadMaxHeightGap: mainRoadMaxHeightGap,
       terrainMainRoadCrownHeight,
       terrainMainRoadMaxShoulderGap,
+      terrainMainRoadInnerShoulderRise,
+      terrainMainRoadMinNormalY,
       terrainMainRoadMaxUvEdgeDelta: mainRoadMaxUvEdgeDelta,
       terrainMainRoadBounds: mainRoadBox ? {
         minX: mainRoadBox.minimumWorld.x,
@@ -726,6 +751,12 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
       groundDetailClumps: names.filter((name) => name.startsWith("ground-detail-clump-")).length,
       wildflowerCards: names.filter((name) => name.startsWith("wildflower-card-")).length,
       pebbleMeshes: names.filter((name) => name.startsWith("pebble-detail-")).length,
+      roadReliefPebbles: names.filter((name) => name.startsWith("road-relief-pebble-")).length,
+      roadReliefShoulderChunks: names.filter((name) => name.startsWith("road-relief-shoulder-")).length,
+      roadReliefVertices: roadReliefMeshes.reduce((sum, mesh) => sum + mesh.getTotalVertices(), 0),
+      roadReliefShadowReceivers: roadReliefMeshes.filter((mesh) => mesh.receiveShadows).length,
+      roadReliefShadowCasters,
+      roadReliefCollisionEntries: map.obstacles.filter((obstacle) => obstacle.name.startsWith("road-relief-")).length,
       treeBaseClutter: names.filter((name) => name.startsWith("tree-base-clutter-")).length,
       shadowGenerators: shadowMaps.length,
       shadowCasters,
@@ -1398,6 +1429,9 @@ test("renders a sparse grass map with atlas tree cards", async ({ page }) => {
   expect(village.terrainMainRoadCrownHeight).toBeGreaterThanOrEqual(0.04);
   expect(village.terrainMainRoadCrownHeight).toBeLessThanOrEqual(0.065);
   expect(village.terrainMainRoadMaxShoulderGap).toBeLessThanOrEqual(0.015);
+  expect(village.terrainMainRoadInnerShoulderRise).toBeGreaterThanOrEqual(0.03);
+  expect(village.terrainMainRoadInnerShoulderRise).toBeLessThanOrEqual(0.045);
+  expect(village.terrainMainRoadMinNormalY).toBeGreaterThan(0.65);
   expect(village.terrainMainRoadMaxHeightGap).toBeLessThanOrEqual(0.065);
   expect(village.terrainMainRoadMaxUvEdgeDelta).toBeGreaterThan(0.01);
   expect(village.terrainMainRoadBounds).not.toBeNull();
@@ -1441,10 +1475,16 @@ test("renders a sparse grass map with atlas tree cards", async ({ page }) => {
   expect(village.groundDetailClumps).toBe(0);
   expect(village.wildflowerCards).toBe(0);
   expect(village.pebbleMeshes).toBe(0);
+  expect(village.roadReliefPebbles).toBe(24);
+  expect(village.roadReliefShoulderChunks).toBe(12);
+  expect(village.roadReliefVertices).toBeGreaterThanOrEqual(300);
+  expect(village.roadReliefShadowReceivers).toBe(36);
+  expect(village.roadReliefShadowCasters).toBe(36);
+  expect(village.roadReliefCollisionEntries).toBe(0);
   expect(village.treeBaseClutter).toBe(0);
   expect(village.shadowGenerators).toBeGreaterThanOrEqual(1);
   expect(village.shadowCasters).toBeGreaterThanOrEqual(4);
-  expect(village.shadowReceivers).toBe(2);
+  expect(village.shadowReceivers).toBeGreaterThanOrEqual(38);
   expect(village.skyLightIntensity).toBeGreaterThanOrEqual(0.82);
   expect(village.sunLightIntensity).toBeGreaterThanOrEqual(1);
   expect(village.mapBounds.maxX - village.mapBounds.minX).toBeGreaterThanOrEqual(32);

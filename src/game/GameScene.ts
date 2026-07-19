@@ -3,6 +3,7 @@ import { Engine } from "@babylonjs/core/Engines/engine";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
 import { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGenerator";
+import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh";
 import { Scene } from "@babylonjs/core/scene";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { InputManager } from "./input/InputManager";
@@ -68,14 +69,17 @@ export class GameScene {
     shadowGenerator.blurKernel = 18;
     shadowGenerator.setDarkness(0.2);
 
-    for (const mesh of this.scene.meshes) {
+    const configureMesh = (mesh: AbstractMesh): void => {
       if (this.receivesSceneShadows(mesh.name)) {
         mesh.receiveShadows = true;
       }
       if (this.castsSceneShadows(mesh.name)) {
         shadowGenerator.addShadowCaster(mesh, true);
       }
-    }
+    };
+
+    for (const mesh of this.scene.meshes) configureMesh(mesh);
+    this.scene.onNewMeshAddedObservable.add(configureMesh);
   }
 
   private receivesSceneShadows(meshName: string): boolean {
@@ -84,6 +88,7 @@ export class GameScene {
       || meshName.startsWith("house-")
       || meshName.startsWith("rock-")
       || meshName.startsWith("pebble-detail-")
+      || meshName.startsWith("road-relief-")
     );
   }
 
@@ -103,6 +108,7 @@ export class GameScene {
       || meshName.startsWith("rock-")
       || meshName.startsWith("fence-")
       || meshName.startsWith("pebble-detail-")
+      || meshName.startsWith("road-relief-")
     );
   }
 

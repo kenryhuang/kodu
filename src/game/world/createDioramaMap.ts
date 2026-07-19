@@ -865,7 +865,7 @@ function sampleRoute(route: RoadRoutePoint[], stepsPerSegment: number): RoadRout
 }
 
 function roadCrownOffset(u: number): number {
-  const crown = Math.pow(Math.sin(Math.PI * u), 1.6);
+  const crown = Math.pow(Math.sin(Math.PI * u), 0.55);
   return 0.008 + crown * 0.05;
 }
 
@@ -933,7 +933,7 @@ function addRoadRibbon(
     for (let cross = 0; cross < crossSegments; cross += 1) {
       const left = row + cross;
       const nextLeft = nextRow + cross;
-      indices.push(left, nextLeft, left + 1, left + 1, nextLeft, nextLeft + 1);
+      indices.push(left, left + 1, nextLeft, left + 1, nextLeft + 1, nextLeft);
     }
   }
 
@@ -948,6 +948,94 @@ function addRoadRibbon(
   mesh.material = material;
   mesh.receiveShadows = true;
   return mesh;
+}
+
+function addRoadReliefGeometry(
+  route: RoadRoutePoint[],
+  ground: GroundMesh,
+  scene: Scene,
+  materials: CartoonMaterials,
+): void {
+  const samples = sampleRoute(route, 10);
+
+  const frameAt = (sampleIndex: number) => {
+    const current = samples[sampleIndex];
+    const previous = samples[Math.max(0, sampleIndex - 1)];
+    const next = samples[Math.min(samples.length - 1, sampleIndex + 1)];
+    const tangentX = next.x - previous.x;
+    const tangentZ = next.z - previous.z;
+    const tangentLength = Math.max(0.001, Math.hypot(tangentX, tangentZ));
+    return {
+      current,
+      tangentX: tangentX / tangentLength,
+      tangentZ: tangentZ / tangentLength,
+      normalX: -tangentZ / tangentLength,
+      normalZ: tangentX / tangentLength,
+    };
+  };
+
+  for (let index = 0; index < 24; index += 1) {
+    const sampleIndex = Math.round((index + 0.7) * (samples.length - 1) / 24.4);
+    const frame = frameAt(sampleIndex);
+    const lateralRatio = Math.sin((index + 1) * 12.9898) * 0.3;
+    const lateral = frame.current.width * lateralRatio;
+    const x = frame.current.x + frame.normalX * lateral;
+    const z = frame.current.z + frame.normalZ * lateral;
+    const u = 0.5 - lateralRatio;
+    const diameter = 0.2 + (index % 4) * 0.035;
+    const radius = diameter * 0.5;
+    const scaleX = 0.82 + (index % 3) * 0.1;
+    const scaleY = 0.58 + (index % 4) * 0.055;
+    const scaleZ = 0.74 + ((index + 1) % 3) * 0.11;
+    const pebble = MeshBuilder.CreateIcoSphere(`road-relief-pebble-${index}`, {
+      radius,
+      subdivisions: 1,
+      flat: true,
+    }, scene);
+    pebble.scaling = new Vector3(scaleX, scaleY, scaleZ);
+    pebble.position = new Vector3(
+      x,
+      ground.getHeightAtCoordinates(x, z) + roadCrownOffset(u) + radius * scaleY * 0.48,
+      z,
+    );
+    pebble.rotation.y = Math.atan2(frame.tangentX, frame.tangentZ) + index * 0.37;
+    pebble.rotation.x = Math.sin(index * 1.7) * 0.12;
+    pebble.rotation.z = Math.cos(index * 1.3) * 0.1;
+    pebble.material = materials.roadReliefStone;
+    pebble.receiveShadows = true;
+  }
+
+  for (let index = 0; index < 12; index += 1) {
+    const sampleIndex = Math.round((index + 0.55) * (samples.length - 1) / 12.1);
+    const frame = frameAt(sampleIndex);
+    const side = index % 2 === 0 ? -1 : 1;
+    const lateralRatio = side * (0.43 + (index % 3) * 0.012);
+    const lateral = frame.current.width * lateralRatio;
+    const x = frame.current.x + frame.normalX * lateral;
+    const z = frame.current.z + frame.normalZ * lateral;
+    const u = 0.5 - lateralRatio;
+    const diameter = 0.32 + (index % 3) * 0.055;
+    const radius = diameter * 0.5;
+    const scaleX = 1.12 + (index % 2) * 0.1;
+    const scaleY = 0.48 + (index % 3) * 0.045;
+    const scaleZ = 0.7 + (index % 3) * 0.07;
+    const shoulder = MeshBuilder.CreateIcoSphere(`road-relief-shoulder-${index}`, {
+      radius,
+      subdivisions: 1,
+      flat: true,
+    }, scene);
+    shoulder.scaling = new Vector3(scaleX, scaleY, scaleZ);
+    shoulder.position = new Vector3(
+      x,
+      ground.getHeightAtCoordinates(x, z) + roadCrownOffset(u) + radius * scaleY * 0.42,
+      z,
+    );
+    shoulder.rotation.y = Math.atan2(frame.tangentX, frame.tangentZ) + index * 0.19;
+    shoulder.rotation.x = Math.sin(index * 1.1) * 0.1;
+    shoulder.rotation.z = Math.cos(index * 1.5) * 0.12;
+    shoulder.material = materials.roadReliefStone;
+    shoulder.receiveShadows = true;
+  }
 }
 
 function addTerrainPatch(
@@ -1187,6 +1275,7 @@ export function createDioramaMap(scene: Scene, materials: CartoonMaterials): Dio
     maxHeight: 0.9,
     onReady: (ground) => {
       addRoadRibbon("terrain-road-main", mainRoadRoute, ground, scene, materials.terrainRoad);
+      addRoadReliefGeometry(mainRoadRoute, ground, scene, materials);
     },
   }, scene);
   terrain.material = materials.terrainGrass;

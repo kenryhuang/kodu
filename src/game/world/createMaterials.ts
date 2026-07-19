@@ -235,7 +235,7 @@ export function createMaterials(scene: Scene) {
   );
   terrainRoadNormal.wrapU = Texture.WRAP_ADDRESSMODE;
   terrainRoadNormal.wrapV = Texture.WRAP_ADDRESSMODE;
-  terrainRoadNormal.level = 0.52;
+  terrainRoadNormal.level = 0.95;
   terrainRoad.diffuseColor = new Color3(1.04, 1.01, 0.94);
   terrainRoad.ambientColor = new Color3(0.34, 0.29, 0.18);
   terrainRoad.emissiveColor = new Color3(0.06, 0.045, 0.025);
@@ -298,6 +298,7 @@ export function createMaterials(scene: Scene) {
     wildflowerPurple: makeMatte("mat-wildflower-purple", new Color3(0.52, 0.42, 0.62), 0.025),
     wildflowerYellow: makeMatte("mat-wildflower-yellow", new Color3(0.68, 0.58, 0.22), 0.025),
     pebble: makeImageTextured("mat-pebble", "/assets/textures/concept/pebbles.png", new Color3(0.48, 0.46, 0.4), 1.4, 1.4, false, 0.11),
+    roadReliefStone: makeMatte("mat-road-relief-stone", new Color3(0.62, 0.52, 0.36), 0.025),
     stoneCluster: makeImageTextured("mat-stone-cluster", "/assets/textures/concept/stone-masonry.png", new Color3(0.42, 0.44, 0.4), 1.2, 1.2, false, 0.13),
     treeLeafDepth: makeAtlasTextured("mat-tree-leaf-depth", new Color3(0.32, 0.55, 0.26), 3, 1, 0.56, 0.035),
     treeShadow: makeTransparent("mat-tree-shadow", new Color3(0.12, 0.2, 0.12), 0.26),

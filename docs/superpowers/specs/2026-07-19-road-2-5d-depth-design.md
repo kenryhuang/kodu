@@ -62,7 +62,19 @@ Extend the deterministic road remaster pipeline to generate the normal map whene
 
 `addRoadRibbon` will apply the cross-road crown offset along the sampled ground normal rather than world Y alone. Normals will be recomputed from the final vertex positions so the directional light responds to the geometric profile.
 
-No additional road mesh, physics body, shadow caster, or per-frame update is introduced.
+The crowned ribbon itself adds no physics body or per-frame update. The bounded screen-space relief geometry below is the only additional road mesh set.
+
+### Screen-Space Relief Geometry
+
+Default-camera validation showed that a 4–6 cm crown and tangent-space normals do not create enough silhouette change at the game's orthographic scale. Add a bounded set of deterministic, low-poly road-relief meshes:
+
+- 24 partially buried pebble meshes distributed inside the road surface;
+- 12 flattened shoulder chunks distributed along alternating road edges;
+- a dedicated matte road-stone material that stays within the existing warm dirt palette;
+- real scene-light response and shadow casting for readable occlusion;
+- no collision entries, physics bodies, navigation changes, or per-frame updates.
+
+These meshes are part of the road presentation, not general terrain props. Their placement is derived from the committed road route and fixed numeric seeds so screenshots and tests remain deterministic.
 
 ## Visual Acceptance Criteria
 
@@ -71,6 +83,7 @@ At the default orthographic camera angle:
 - individual pebbles read as raised objects rather than painted dots;
 - ruts and compacted soil show directional light and shade;
 - the road center and shoulders form a visible but restrained cross-section;
+- low-poly pebbles and shoulder chunks create visible silhouettes and contact shadows at the default camera scale;
 - road edges remain soft and hand-painted, without a hard curb;
 - the surface is matte, with no plastic gloss or aggressive sharpening halo;
 - the result remains legible at 1440 × 900 and 390 × 844 viewports.
@@ -86,6 +99,7 @@ Add or update tests that verify:
 - the road ribbon retains at least seven cross-width samples;
 - the center vertices are measurably above the shoulder vertices within the 4–6 cm design range;
 - the road continues to follow the terrain without a visible height gap;
+- exactly 24 road-relief pebbles and 12 road-relief shoulder chunks are present, receive lighting, cast shadows, and remain absent from the collision map;
 - existing movement, jump, projectile, resize, and asset-serving tests remain green.
 
 Final validation includes fresh desktop and mobile screenshots plus the full test and production-build commands.
@@ -96,4 +110,4 @@ Final validation includes fresh desktop and mobile screenshots plus the full tes
 - No parallax-occlusion mapping.
 - No change to player collision or navigation.
 - No replacement of the existing hand-painted road color artwork.
-- No additional loose pebble meshes or road-side props in this iteration.
+- No general terrain decoration or collision-bearing road props beyond the bounded road-relief geometry.

@@ -179,7 +179,7 @@ def make_ribbon(
     return ribbon
 
 
-def make_normal_map(diffuse: Image.Image, strength: float = 2.4) -> Image.Image:
+def make_normal_map(diffuse: Image.Image, strength: float = 4.0) -> Image.Image:
     rgba = diffuse.convert("RGBA")
     luminance = rgba.convert("L")
     low = luminance.filter(ImageFilter.GaussianBlur(radius=4.0))
