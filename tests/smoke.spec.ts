@@ -1059,11 +1059,33 @@ test("terrain image assets are served", async ({ page }) => {
     width: 512,
     height: 512,
   });
-  expect(dimensions.find(({ asset }) => asset === "/assets/terrain/atlas/road/road-ribbon-seamless.png")).toEqual({
-    asset: "/assets/terrain/atlas/road/road-ribbon-seamless.png",
-    width: 256,
-    height: 512,
-  });
+  const roadAssetDimensions = new Map<string, [number, number]>([
+    ["/assets/terrain/atlas/road/road-ribbon-seamless.png", [1024, 2048]],
+    ["/assets/terrain/atlas/road/road-straight-vertical-wide.png", [300, 388]],
+    ["/assets/terrain/atlas/road/road-square-small.png", [260, 308]],
+    ["/assets/terrain/atlas/road/road-straight-horizontal-wide.png", [476, 296]],
+    ["/assets/terrain/atlas/road/road-vertical-a.png", [336, 344]],
+    ["/assets/terrain/atlas/road/road-vertical-b.png", [368, 372]],
+    ["/assets/terrain/atlas/road/road-rectangle-wide.png", [372, 300]],
+    ["/assets/terrain/atlas/road/road-vertical-narrow-a.png", [300, 380]],
+    ["/assets/terrain/atlas/road/road-corner-east.png", [420, 372]],
+    ["/assets/terrain/atlas/road/road-corner-west.png", [516, 404]],
+    ["/assets/terrain/atlas/road/road-vertical-narrow-b.png", [292, 392]],
+    ["/assets/terrain/atlas/road/road-end-round.png", [336, 360]],
+    ["/assets/terrain/atlas/road/road-vertical-narrow-c.png", [240, 376]],
+    ["/assets/terrain/atlas/road/road-t-junction-a.png", [456, 360]],
+    ["/assets/terrain/atlas/road/road-t-junction-b.png", [468, 360]],
+    ["/assets/terrain/atlas/road/road-t-junction-wide-a.png", [596, 364]],
+    ["/assets/terrain/atlas/road/road-t-junction-c.png", [500, 364]],
+    ["/assets/terrain/atlas/road/road-t-junction-wide-b.png", [640, 364]],
+    ["/assets/terrain/atlas/road/road-clearing-round-a.png", [512, 380]],
+    ["/assets/terrain/atlas/road/road-clearing-round-b.png", [516, 444]],
+    ["/assets/terrain/atlas/road/road-rectangle-small.png", [344, 264]],
+    ["/assets/terrain/atlas/road/road-corner-large.png", [308, 352]],
+  ]);
+  for (const [asset, [width, height]] of roadAssetDimensions) {
+    expect(dimensions.find((dimension) => dimension.asset === asset)).toEqual({ asset, width, height });
+  }
 
   const waterTileMaximumHeights = new Map([
     ["/assets/terrain/atlas/water/water-pond-large.png", 205],
