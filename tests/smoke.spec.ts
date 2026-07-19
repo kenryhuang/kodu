@@ -28,6 +28,8 @@ type VillageSnapshot = {
   terrainMainRoadMaxTurnDegrees: number;
   terrainMainRoadCrossWidthSamples: number;
   terrainMainRoadMaxHeightGap: number;
+  terrainMainRoadCrownHeight: number;
+  terrainMainRoadMaxShoulderGap: number;
   terrainMainRoadMaxUvEdgeDelta: number;
   terrainMainRoadBounds: {
     minX: number;
@@ -493,6 +495,8 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
     const mainRoadRowSize = mainRoadCrossWidthSamples > 0 ? mainRoadCrossWidthSamples : mainRoadUs.length;
     const mainRoadCenters: Array<{ x: number; z: number }> = [];
     let mainRoadMaxHeightGap = 0;
+    let terrainMainRoadCrownHeight = 0;
+    let terrainMainRoadMaxShoulderGap = 0;
     let mainRoadMaxUvEdgeDelta = 0;
     for (let vertex = 0; vertex < mainRoadPositions.length / 3; vertex += 1) {
       const position = vertex * 3;
@@ -506,6 +510,26 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
           Math.abs(mainRoadPositions[position + 1] - groundHeight),
         );
       }
+    }
+    for (let row = 0; row + mainRoadRowSize <= mainRoadPositions.length / 3; row += mainRoadRowSize) {
+      const offsets: number[] = [];
+      for (let cross = 0; cross < mainRoadRowSize; cross += 1) {
+        const vertex = row + cross;
+        const position = vertex * 3;
+        const groundHeight = terrainGround?.getHeightAtCoordinates?.(
+          mainRoadPositions[position],
+          mainRoadPositions[position + 2],
+        );
+        offsets.push(groundHeight === undefined ? 0 : mainRoadPositions[position + 1] - groundHeight);
+      }
+      const center = offsets[Math.floor(offsets.length / 2)];
+      const shoulder = (offsets[0] + offsets[offsets.length - 1]) * 0.5;
+      terrainMainRoadCrownHeight = Math.max(terrainMainRoadCrownHeight, center - shoulder);
+      terrainMainRoadMaxShoulderGap = Math.max(
+        terrainMainRoadMaxShoulderGap,
+        Math.abs(offsets[0]),
+        Math.abs(offsets[offsets.length - 1]),
+      );
     }
     for (let vertex = 0; vertex < mainRoadPositions.length / 3; vertex += mainRoadRowSize) {
       const rightVertex = Math.min(vertex + mainRoadRowSize - 1, mainRoadPositions.length / 3 - 1);
@@ -656,6 +680,8 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
       terrainMainRoadMaxTurnDegrees: mainRoadMaxTurnDegrees,
       terrainMainRoadCrossWidthSamples: mainRoadCrossWidthSamples,
       terrainMainRoadMaxHeightGap: mainRoadMaxHeightGap,
+      terrainMainRoadCrownHeight,
+      terrainMainRoadMaxShoulderGap,
       terrainMainRoadMaxUvEdgeDelta: mainRoadMaxUvEdgeDelta,
       terrainMainRoadBounds: mainRoadBox ? {
         minX: mainRoadBox.minimumWorld.x,
@@ -1369,7 +1395,10 @@ test("renders a sparse grass map with atlas tree cards", async ({ page }) => {
   expect(village.terrainMainRoadVertices).toBeGreaterThanOrEqual(120);
   expect(village.terrainMainRoadMaxTurnDegrees).toBeLessThan(12);
   expect(village.terrainMainRoadCrossWidthSamples).toBeGreaterThanOrEqual(5);
-  expect(village.terrainMainRoadMaxHeightGap).toBeLessThanOrEqual(0.02);
+  expect(village.terrainMainRoadCrownHeight).toBeGreaterThanOrEqual(0.04);
+  expect(village.terrainMainRoadCrownHeight).toBeLessThanOrEqual(0.065);
+  expect(village.terrainMainRoadMaxShoulderGap).toBeLessThanOrEqual(0.015);
+  expect(village.terrainMainRoadMaxHeightGap).toBeLessThanOrEqual(0.065);
   expect(village.terrainMainRoadMaxUvEdgeDelta).toBeGreaterThan(0.01);
   expect(village.terrainMainRoadBounds).not.toBeNull();
   expect(village.terrainMainRoadBounds!.maxX - village.terrainMainRoadBounds!.minX).toBeGreaterThanOrEqual(32);

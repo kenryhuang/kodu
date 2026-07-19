@@ -864,6 +864,11 @@ function sampleRoute(route: RoadRoutePoint[], stepsPerSegment: number): RoadRout
   return samples;
 }
 
+function roadCrownOffset(u: number): number {
+  const crown = Math.pow(Math.sin(Math.PI * u), 1.6);
+  return 0.008 + crown * 0.05;
+}
+
 function addRoadRibbon(
   name: string,
   route: RoadRoutePoint[],
@@ -910,9 +915,14 @@ function addRoadRibbon(
       const u = cross / crossSegments;
       const x = leftX + (rightX - leftX) * u;
       const z = leftZ + (rightZ - leftZ) * u;
-      const groundNormal = ground.getNormalAtCoordinates(x, z);
-      positions.push(x, ground.getHeightAtCoordinates(x, z) + 0.008, z);
-      normals.push(groundNormal.x, groundNormal.y, groundNormal.z);
+      const groundNormal = ground.getNormalAtCoordinates(x, z).normalize();
+      const offset = roadCrownOffset(u);
+      const groundHeight = ground.getHeightAtCoordinates(x, z);
+      positions.push(
+        x + groundNormal.x * offset,
+        groundHeight + groundNormal.y * offset,
+        z + groundNormal.z * offset,
+      );
       uvs.push(u, (leftTraveled + (rightTraveled - leftTraveled) * u) / 5);
     }
   }
@@ -929,6 +939,7 @@ function addRoadRibbon(
 
   const mesh = new Mesh(name, scene);
   const vertexData = new VertexData();
+  VertexData.ComputeNormals(positions, indices, normals);
   vertexData.positions = positions;
   vertexData.indices = indices;
   vertexData.normals = normals;
