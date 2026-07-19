@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from collections import deque
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageChops, ImageFilter, ImageStat
 
 from scripts.road_texture_manifest import LEGACY_SIZES, RIBBON_NAME, RIBBON_SIZE, SCALE
 
@@ -45,6 +46,60 @@ class RoadTextureContractTest(unittest.TestCase):
             for channel in range(4)
         ) / (ribbon.width * 4)
         self.assertLessEqual(difference, 2.0)
+
+    def test_ribbon_has_native_resolution_detail(self) -> None:
+        ribbon = Image.open(ROAD_DIR / f"{RIBBON_NAME}.png").convert("RGBA")
+        luminance = ribbon.convert("L")
+        opaque = ribbon.getchannel("A").point(lambda value: 255 if value >= 220 else 0)
+        opaque = opaque.filter(ImageFilter.MinFilter(3))
+        horizontal = ImageChops.difference(luminance, ImageChops.offset(luminance, 1, 0))
+        vertical = ImageChops.difference(luminance, ImageChops.offset(luminance, 0, 1))
+        detail = (ImageStat.Stat(horizontal, opaque).mean[0] + ImageStat.Stat(vertical, opaque).mean[0]) / 2
+        self.assertGreaterEqual(detail, 1.5)
+
+    def test_outputs_have_no_enclosed_transparent_holes(self) -> None:
+        for path in sorted(ROAD_DIR.glob("*.png")):
+            with self.subTest(asset=path.name):
+                alpha = Image.open(path).convert("RGBA").getchannel("A")
+                width, height = alpha.size
+                pixels = alpha.load()
+                exterior: set[tuple[int, int]] = set()
+                queue: deque[tuple[int, int]] = deque()
+                for x in range(width):
+                    for point in ((x, 0), (x, height - 1)):
+                        if pixels[point] < 250 and point not in exterior:
+                            exterior.add(point)
+                            queue.append(point)
+                for y in range(height):
+                    for point in ((0, y), (width - 1, y)):
+                        if pixels[point] < 250 and point not in exterior:
+                            exterior.add(point)
+                            queue.append(point)
+                while queue:
+                    x, y = queue.popleft()
+                    for point in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                        next_x, next_y = point
+                        if not (0 <= next_x < width and 0 <= next_y < height):
+                            continue
+                        if pixels[point] < 250 and point not in exterior:
+                            exterior.add(point)
+                            queue.append(point)
+                enclosed = sum(
+                    pixels[x, y] < 16 and (x, y) not in exterior
+                    for y in range(height)
+                    for x in range(width)
+                )
+                self.assertEqual(enclosed, 0)
+
+    def test_outputs_have_no_opaque_black_hole_pixels(self) -> None:
+        for path in sorted(ROAD_DIR.glob("*.png")):
+            with self.subTest(asset=path.name):
+                image = Image.open(path).convert("RGBA")
+                black_pixels = sum(
+                    alpha >= 220 and max(red, green, blue) < 24
+                    for red, green, blue, alpha in image.getdata()
+                )
+                self.assertEqual(black_pixels, 0)
 
 
 if __name__ == "__main__":
