@@ -11,9 +11,19 @@ from scripts.road_texture_manifest import LEGACY_SIZES, RIBBON_NAME, RIBBON_SIZE
 
 ROOT = Path(__file__).resolve().parents[1]
 ROAD_DIR = ROOT / "public/assets/terrain/atlas/road"
+MATERIAL_DIR = ROOT / "scripts/assets/road-remaster"
 
 
 class RoadTextureContractTest(unittest.TestCase):
+    @staticmethod
+    def screen_scale_detail(image: Image.Image, width: int = 256) -> float:
+        resized = image.convert("RGB").resize(
+            (width, round(image.height * width / image.width)),
+            Image.Resampling.LANCZOS,
+        ).convert("L")
+        high_frequency = ImageChops.difference(resized, resized.filter(ImageFilter.GaussianBlur(1.0)))
+        return ImageStat.Stat(high_frequency).mean[0]
+
     def test_all_outputs_are_rgba_and_four_times_legacy_size(self) -> None:
         for name, legacy_size in LEGACY_SIZES.items():
             with self.subTest(asset=name):
@@ -56,6 +66,13 @@ class RoadTextureContractTest(unittest.TestCase):
         vertical = ImageChops.difference(luminance, ImageChops.offset(luminance, 0, 1))
         detail = (ImageStat.Stat(horizontal, opaque).mean[0] + ImageStat.Stat(vertical, opaque).mean[0]) / 2
         self.assertGreaterEqual(detail, 1.5)
+
+    def test_ribbon_preserves_screen_scale_source_detail(self) -> None:
+        ribbon = Image.open(ROAD_DIR / f"{RIBBON_NAME}.png").convert("RGB")
+        road_center = ribbon.crop((170, 0, ribbon.width - 170, ribbon.height))
+        dirt_source = Image.open(MATERIAL_DIR / "dirt-material.png").convert("RGB")
+        preserved_ratio = self.screen_scale_detail(road_center) / self.screen_scale_detail(dirt_source)
+        self.assertGreaterEqual(preserved_ratio, 0.75)
 
     def test_outputs_have_no_enclosed_transparent_holes(self) -> None:
         for path in sorted(ROAD_DIR.glob("*.png")):

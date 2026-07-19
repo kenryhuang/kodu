@@ -148,7 +148,7 @@ def remaster_tile(
     grass = grass_mask(scaled)
     dirt = ImageChops.multiply(alpha, ImageOps.invert(grass))
     grass_tile = tile_to_size(grass_material, size, (seed * 97, seed * 61))
-    rgb = apply_material(scaled, dirt_tile, dirt, 0.34)
+    rgb = apply_material(scaled, dirt_tile, dirt, 0.72)
     rgb = apply_material(rgb, grass_tile, grass, 0.25)
     rgb = rgb.filter(ImageFilter.UnsharpMask(radius=0.85, percent=118, threshold=3))
     return Image.merge("RGBA", (*rgb.split(), alpha))
