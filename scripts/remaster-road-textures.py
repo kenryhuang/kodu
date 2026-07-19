@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import math
 import runpy
 from collections import deque
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageOps, ImageStat
 
-from road_texture_manifest import LEGACY_SIZES, RIBBON_NAME, RIBBON_SIZE, ROAD_TILES, SCALE
+from road_texture_manifest import (
+    LEGACY_SIZES,
+    RIBBON_NAME,
+    RIBBON_NORMAL_NAME,
+    RIBBON_SIZE,
+    ROAD_TILES,
+    SCALE,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -171,6 +179,44 @@ def make_ribbon(
     return ribbon
 
 
+def make_normal_map(diffuse: Image.Image, strength: float = 2.4) -> Image.Image:
+    rgba = diffuse.convert("RGBA")
+    luminance = rgba.convert("L")
+    low = luminance.filter(ImageFilter.GaussianBlur(radius=4.0))
+    detail = ImageEnhance.Contrast(luminance).enhance(1.8)
+    height = Image.blend(low, detail, 0.72)
+    alpha = rgba.getchannel("A")
+    width, image_height = rgba.size
+    heights = list(height.getdata())
+    alphas = list(alpha.getdata())
+    pixels: list[tuple[int, int, int]] = []
+
+    def sample(x: int, y: int) -> int:
+        wrapped_y = y % image_height
+        clamped_x = max(0, min(width - 1, x))
+        return heights[wrapped_y * width + clamped_x]
+
+    for y in range(image_height):
+        for x in range(width):
+            index = y * width + x
+            if alphas[index] < 16:
+                pixels.append((128, 128, 255))
+                continue
+            dx = (sample(x - 1, y) - sample(x + 1, y)) / 255 * strength
+            dy = (sample(x, y - 1) - sample(x, y + 1)) / 255 * strength
+            length = math.sqrt(dx * dx + dy * dy + 1)
+            pixels.append((
+                round((dx / length * 0.5 + 0.5) * 255),
+                round((dy / length * 0.5 + 0.5) * 255),
+                round((1 / length * 0.5 + 0.5) * 255),
+            ))
+
+    normal = Image.new("RGB", rgba.size)
+    normal.putdata(pixels)
+    normal.paste(normal.crop((0, 0, width, 1)), (0, image_height - 1))
+    return normal
+
+
 def checkerboard(size: tuple[int, int], cell: int = 12) -> Image.Image:
     image = Image.new("RGBA", size, (245, 245, 242, 255))
     draw = ImageDraw.Draw(image)
@@ -234,6 +280,9 @@ def main() -> None:
     ribbon.save(ribbon_output, optimize=True)
     outputs.insert(0, ribbon_output)
     print(f"wrote {ribbon_output.relative_to(ROOT)} {ribbon.width}x{ribbon.height}")
+    normal_output = ROAD_DIR / f"{RIBBON_NORMAL_NAME}.png"
+    make_normal_map(ribbon).save(normal_output, optimize=True)
+    print(f"wrote {normal_output.relative_to(ROOT)} {ribbon.width}x{ribbon.height}")
     make_contact_sheet(outputs)
     print(f"wrote {OUTPUT_PREVIEW.relative_to(ROOT)}")
 

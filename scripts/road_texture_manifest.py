@@ -27,6 +27,7 @@ ROAD_TILES = (
 
 SCALE = 4
 RIBBON_NAME = "road-ribbon-seamless"
+RIBBON_NORMAL_NAME = "road-ribbon-normal"
 RIBBON_SIZE = (1024, 2048)
 
 LEGACY_SIZES = {

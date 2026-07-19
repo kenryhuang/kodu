@@ -6,7 +6,13 @@ from pathlib import Path
 
 from PIL import Image, ImageChops, ImageFilter, ImageStat
 
-from scripts.road_texture_manifest import LEGACY_SIZES, RIBBON_NAME, RIBBON_SIZE, SCALE
+from scripts.road_texture_manifest import (
+    LEGACY_SIZES,
+    RIBBON_NAME,
+    RIBBON_NORMAL_NAME,
+    RIBBON_SIZE,
+    SCALE,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,7 +43,11 @@ class RoadTextureContractTest(unittest.TestCase):
 
     def test_every_output_keeps_transparent_and_visible_pixels(self) -> None:
         expected_names = {*LEGACY_SIZES, RIBBON_NAME}
-        actual_names = {path.stem for path in ROAD_DIR.glob("*.png")}
+        actual_names = {
+            path.stem
+            for path in ROAD_DIR.glob("*.png")
+            if path.stem != RIBBON_NORMAL_NAME
+        }
         self.assertEqual(actual_names, expected_names)
 
         for name in sorted(expected_names):
@@ -56,6 +66,22 @@ class RoadTextureContractTest(unittest.TestCase):
             for channel in range(4)
         ) / (ribbon.width * 4)
         self.assertLessEqual(difference, 2.0)
+
+    def test_ribbon_normal_map_contract(self) -> None:
+        with Image.open(ROAD_DIR / f"{RIBBON_NORMAL_NAME}.png") as normal:
+            self.assertEqual(normal.mode, "RGB")
+            self.assertEqual(normal.size, RIBBON_SIZE)
+            red, green, blue = normal.split()
+            self.assertGreater(red.getextrema()[1] - red.getextrema()[0], 16)
+            self.assertGreater(green.getextrema()[1] - green.getextrema()[0], 16)
+            self.assertGreaterEqual(blue.getextrema()[0], 128)
+
+    def test_ribbon_normal_map_is_vertically_seamless(self) -> None:
+        normal = Image.open(ROAD_DIR / f"{RIBBON_NORMAL_NAME}.png").convert("RGB")
+        self.assertEqual(
+            list(normal.crop((0, 0, normal.width, 1)).getdata()),
+            list(normal.crop((0, normal.height - 1, normal.width, normal.height)).getdata()),
+        )
 
     def test_ribbon_has_native_resolution_detail(self) -> None:
         ribbon = Image.open(ROAD_DIR / f"{RIBBON_NAME}.png").convert("RGBA")
