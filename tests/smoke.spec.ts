@@ -118,6 +118,9 @@ type VillageSnapshot = {
     b: number;
   } | null;
   terrainRoadEmissiveTextureSource: string | null;
+  terrainRoadBumpTextureSource: string | null;
+  terrainRoadBumpLevel: number | null;
+  terrainRoadSpecular: { r: number; g: number; b: number } | null;
   pathDirtDiffuse: {
     r: number;
     g: number;
@@ -358,6 +361,7 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
               bumpTexture?: {
                 name?: string;
                 url?: string;
+                level?: number;
                 uScale?: number;
                 vScale?: number;
               } | null;
@@ -377,6 +381,11 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
                 b: number;
               };
               emissiveColor?: {
+                r: number;
+                g: number;
+                b: number;
+              };
+              specularColor?: {
                 r: number;
                 g: number;
                 b: number;
@@ -722,6 +731,13 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
       terrainRoadEmissiveTextureSource: terrainRoadMaterial?.emissiveTexture
         ? terrainRoadMaterial.emissiveTexture.url ?? terrainRoadMaterial.emissiveTexture.name ?? null
         : null,
+      terrainRoadBumpTextureSource: terrainRoadMaterial?.bumpTexture
+        ? terrainRoadMaterial.bumpTexture.url ?? terrainRoadMaterial.bumpTexture.name ?? null
+        : null,
+      terrainRoadBumpLevel: terrainRoadMaterial?.bumpTexture?.level ?? null,
+      terrainRoadSpecular: terrainRoadMaterial?.specularColor
+        ? colorSnapshot({ diffuseColor: terrainRoadMaterial.specularColor })
+        : null,
       pathDirtDiffuse: colorSnapshot(pathDirtMaterial),
       houseObstacles,
       houseRoadClearances,
@@ -862,6 +878,7 @@ test("terrain image assets are served", async ({ page }) => {
   const seamlessGrassAsset = "/assets/terrain/atlas/grass/grass-seamless-blended.png";
   const atlasTerrainAssets = [
     "/assets/terrain/atlas/road/road-ribbon-seamless.png",
+    "/assets/terrain/atlas/road/road-ribbon-normal.png",
     "/assets/terrain/atlas/grass/grass-flat.png",
     "/assets/terrain/atlas/grass/grass-flat-yellow.png",
     "/assets/terrain/atlas/grass/grass-flat-yellow-flowers.png",
@@ -1061,6 +1078,7 @@ test("terrain image assets are served", async ({ page }) => {
   });
   const roadAssetDimensions = new Map<string, [number, number]>([
     ["/assets/terrain/atlas/road/road-ribbon-seamless.png", [1024, 2048]],
+    ["/assets/terrain/atlas/road/road-ribbon-normal.png", [1024, 2048]],
     ["/assets/terrain/atlas/road/road-straight-vertical-wide.png", [300, 388]],
     ["/assets/terrain/atlas/road/road-square-small.png", [260, 308]],
     ["/assets/terrain/atlas/road/road-straight-horizontal-wide.png", [476, 296]],
@@ -1127,7 +1145,7 @@ test("terrain image assets are served", async ({ page }) => {
     };
     image.onerror = () => reject(new Error(`Could not load ${asset}`));
     image.src = asset;
-  }))), atlasAssets);
+  }))), atlasAssets.filter((asset) => !asset.endsWith("/road-ribbon-normal.png")));
 
   for (const image of alphaStats) {
     expect(image.transparentPixels, `${image.asset} transparent pixels`).toBeGreaterThan(0);
@@ -1368,9 +1386,16 @@ test("renders a sparse grass map with atlas tree cards", async ({ page }) => {
   expect(village.terrainGrassBumpTextureSource).toContain("/assets/terrain/atlas/grass/grass-seamless-blended.png");
   expect(village.terrainGrassTextureScale?.u).toBeCloseTo(4.5, 5);
   expect(village.terrainGrassTextureScale?.v).toBeCloseTo(3.5, 5);
-  expect(village.terrainRoadDisableLighting).toBe(true);
-  expect(village.terrainRoadEmissive).toEqual({ r: 1, g: 1, b: 1 });
-  expect(village.terrainRoadEmissiveTextureSource).toContain("/assets/terrain/atlas/road/road-ribbon-seamless.png");
+  expect(village.terrainRoadDisableLighting).toBe(false);
+  expect(village.terrainRoadEmissive!.r).toBeLessThanOrEqual(0.08);
+  expect(village.terrainRoadEmissive!.g).toBeLessThanOrEqual(0.07);
+  expect(village.terrainRoadEmissive!.b).toBeLessThanOrEqual(0.05);
+  expect(village.terrainRoadEmissiveTextureSource).toBeNull();
+  expect(village.terrainRoadBumpTextureSource).toContain(
+    "/assets/terrain/atlas/road/road-ribbon-normal.png",
+  );
+  expect(village.terrainRoadBumpLevel).toBeGreaterThanOrEqual(0.45);
+  expect(village.terrainRoadSpecular!.r).toBeLessThanOrEqual(0.02);
   expect(village.treeTrunkBases).toBe(0);
   expect(village.treeRoots).toBe(0);
   expect(village.treeBranches).toBe(0);

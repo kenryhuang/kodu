@@ -220,11 +220,29 @@ export function createMaterials(scene: Scene) {
   const terrainMeadow = makeImageTextured("mat-terrain-meadow", "/assets/terrain/meadow.png", new Color3(0.74, 0.88, 0.42), 1.35, 1.35, true, 0.04);
   terrainMeadow.diffuseColor = new Color3(1.2, 1.26, 0.98);
   terrainMeadow.emissiveColor = new Color3(0.08, 0.11, 0.04);
-  const terrainRoad = makeImageTextured("mat-terrain-road", "/assets/terrain/atlas/road/road-ribbon-seamless.png", new Color3(0.8, 0.7, 0.46), 1, 1, true);
-  terrainRoad.diffuseColor = new Color3(1, 1, 1);
-  terrainRoad.emissiveColor = new Color3(1, 1, 1);
-  terrainRoad.emissiveTexture = terrainRoad.diffuseTexture;
-  terrainRoad.disableLighting = true;
+  const terrainRoad = makeImageTextured(
+    "mat-terrain-road",
+    "/assets/terrain/atlas/road/road-ribbon-seamless.png",
+    new Color3(0.8, 0.7, 0.46),
+    1,
+    1,
+    true,
+  );
+  const terrainRoadNormal = new Texture(
+    "/assets/terrain/atlas/road/road-ribbon-normal.png",
+    scene,
+    { invertY: false, samplingMode: Texture.BILINEAR_SAMPLINGMODE },
+  );
+  terrainRoadNormal.wrapU = Texture.WRAP_ADDRESSMODE;
+  terrainRoadNormal.wrapV = Texture.WRAP_ADDRESSMODE;
+  terrainRoadNormal.level = 0.52;
+  terrainRoad.diffuseColor = new Color3(1.04, 1.01, 0.94);
+  terrainRoad.ambientColor = new Color3(0.34, 0.29, 0.18);
+  terrainRoad.emissiveColor = new Color3(0.06, 0.045, 0.025);
+  terrainRoad.emissiveTexture = null;
+  terrainRoad.specularColor = new Color3(0.012, 0.011, 0.009);
+  terrainRoad.bumpTexture = terrainRoadNormal;
+  terrainRoad.disableLighting = false;
   const pathDirt = makeImageTextured("mat-path-dirt", "/assets/textures/concept/dirt-road.png", new Color3(0.7, 0.46, 0.25), 1.4, 2.2, true, 0.04);
   pathDirt.diffuseColor = new Color3(1.1, 0.84, 0.58);
   pathDirt.emissiveColor = new Color3(0.07, 0.045, 0.022);
