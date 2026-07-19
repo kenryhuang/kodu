@@ -1,5 +1,6 @@
 import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import type { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import type { GroundMesh } from "@babylonjs/core/Meshes/groundMesh";
 import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData";
@@ -824,18 +825,38 @@ function roadJitter(index: number, side: number): number {
   return Math.sin(index * 12.9898 + side * 78.233) * 0.11 + Math.sin(index * 4.17 + side * 1.9) * 0.05;
 }
 
+function catmullRom(a: number, b: number, c: number, d: number, t: number): number {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return 0.5 * (
+    2 * b
+    + (-a + c) * t
+    + (2 * a - 5 * b + 4 * c - d) * t2
+    + (-a + 3 * b - 3 * c + d) * t3
+  );
+}
+
 function sampleRoute(route: RoadRoutePoint[], stepsPerSegment: number): RoadRoutePoint[] {
   const samples: RoadRoutePoint[] = [];
   for (let segment = 0; segment < route.length - 1; segment += 1) {
-    const a = route[segment];
-    const b = route[segment + 1];
+    const b = route[segment];
+    const c = route[segment + 1];
+    const a = segment > 0 ? route[segment - 1] : {
+      x: b.x * 2 - c.x,
+      z: b.z * 2 - c.z,
+      width: b.width * 2 - c.width,
+    };
+    const d = segment + 2 < route.length ? route[segment + 2] : {
+      x: c.x * 2 - b.x,
+      z: c.z * 2 - b.z,
+      width: c.width * 2 - b.width,
+    };
     for (let step = 0; step < stepsPerSegment; step += 1) {
       const t = step / stepsPerSegment;
-      const eased = t * t * (3 - t * 2);
       samples.push({
-        x: a.x + (b.x - a.x) * eased,
-        z: a.z + (b.z - a.z) * eased,
-        width: a.width + (b.width - a.width) * eased,
+        x: catmullRom(a.x, b.x, c.x, d.x, t),
+        z: catmullRom(a.z, b.z, c.z, d.z, t),
+        width: catmullRom(a.width, b.width, c.width, d.width, t),
       });
     }
   }
@@ -843,44 +864,67 @@ function sampleRoute(route: RoadRoutePoint[], stepsPerSegment: number): RoadRout
   return samples;
 }
 
-function addRoadRibbon(name: string, route: RoadRoutePoint[], scene: Scene, material: StandardMaterial): Mesh {
-  const samples = sampleRoute(route, 8);
+function addRoadRibbon(
+  name: string,
+  route: RoadRoutePoint[],
+  ground: GroundMesh,
+  scene: Scene,
+  material: StandardMaterial,
+): Mesh {
+  const samples = sampleRoute(route, 12);
+  const crossSegments = 6;
+  const rowSize = crossSegments + 1;
   const positions: number[] = [];
   const normals: number[] = [];
   const uvs: number[] = [];
   const indices: number[] = [];
-  let traveled = 0;
+  let leftTraveled = 0;
+  let rightTraveled = 0;
+  let previousLeft: { x: number; z: number } | null = null;
+  let previousRight: { x: number; z: number } | null = null;
 
   for (let index = 0; index < samples.length; index += 1) {
     const current = samples[index];
     const previous = samples[Math.max(0, index - 1)];
     const next = samples[Math.min(samples.length - 1, index + 1)];
-    if (index > 0) {
-      const dx = current.x - previous.x;
-      const dz = current.z - previous.z;
-      traveled += Math.sqrt(dx * dx + dz * dz);
-    }
-
     const tangentX = next.x - previous.x;
     const tangentZ = next.z - previous.z;
     const length = Math.max(0.001, Math.sqrt(tangentX * tangentX + tangentZ * tangentZ));
     const normalX = -tangentZ / length;
     const normalZ = tangentX / length;
-    const leftWidth = current.width * 0.5 + roadJitter(index, -1);
-    const rightWidth = current.width * 0.5 + roadJitter(index, 1);
+    const widthJitter = roadJitter(index, 0);
+    const leftWidth = current.width * 0.5 + widthJitter;
+    const rightWidth = current.width * 0.5 + widthJitter;
     const leftX = current.x + normalX * leftWidth;
     const leftZ = current.z + normalZ * leftWidth;
     const rightX = current.x - normalX * rightWidth;
     const rightZ = current.z - normalZ * rightWidth;
-    positions.push(leftX, terrainVisualHeightAt(leftX, leftZ) + 0.055, leftZ);
-    positions.push(rightX, terrainVisualHeightAt(rightX, rightZ) + 0.055, rightZ);
-    normals.push(0, 1, 0, 0, 1, 0);
-    uvs.push(0, traveled / 5, 1, traveled / 5);
+    if (previousLeft && previousRight) {
+      leftTraveled += Math.hypot(leftX - previousLeft.x, leftZ - previousLeft.z);
+      rightTraveled += Math.hypot(rightX - previousRight.x, rightZ - previousRight.z);
+    }
+    previousLeft = { x: leftX, z: leftZ };
+    previousRight = { x: rightX, z: rightZ };
+
+    for (let cross = 0; cross <= crossSegments; cross += 1) {
+      const u = cross / crossSegments;
+      const x = leftX + (rightX - leftX) * u;
+      const z = leftZ + (rightZ - leftZ) * u;
+      const groundNormal = ground.getNormalAtCoordinates(x, z);
+      positions.push(x, ground.getHeightAtCoordinates(x, z) + 0.008, z);
+      normals.push(groundNormal.x, groundNormal.y, groundNormal.z);
+      uvs.push(u, (leftTraveled + (rightTraveled - leftTraveled) * u) / 5);
+    }
   }
 
   for (let index = 0; index < samples.length - 1; index += 1) {
-    const left = index * 2;
-    indices.push(left, left + 2, left + 1, left + 1, left + 2, left + 3);
+    const row = index * rowSize;
+    const nextRow = row + rowSize;
+    for (let cross = 0; cross < crossSegments; cross += 1) {
+      const left = row + cross;
+      const nextLeft = nextRow + cross;
+      indices.push(left, nextLeft, left + 1, left + 1, nextLeft, nextLeft + 1);
+    }
   }
 
   const mesh = new Mesh(name, scene);
@@ -891,6 +935,7 @@ function addRoadRibbon(name: string, route: RoadRoutePoint[], scene: Scene, mate
   vertexData.uvs = uvs;
   vertexData.applyToMesh(mesh);
   mesh.material = material;
+  mesh.receiveShadows = true;
   return mesh;
 }
 
@@ -1112,16 +1157,8 @@ function addAtlasTreeCards(scene: Scene, materials: CartoonMaterials): void {
 }
 
 export function createDioramaMap(scene: Scene, materials: CartoonMaterials): DioramaMap {
-  const terrain = MeshBuilder.CreateGroundFromHeightMap("terrain-heightmap-ground", "/assets/terrain/heightmap-valley.png", {
-    width: 36,
-    height: 28,
-    subdivisions: 96,
-    minHeight: -0.12,
-    maxHeight: 0.9,
-  }, scene);
-  terrain.material = materials.terrainGrass;
-  addRoadRibbon("terrain-road-main", [
-    { x: -18, z: -10.5, width: 2.3 },
+  const mainRoadRoute: RoadRoutePoint[] = [
+    { x: -17.2, z: -10.5, width: 2.3 },
     { x: -12, z: -8.1, width: 2.45 },
     { x: -8, z: -6.4, width: 2.35 },
     { x: -3, z: -5.2, width: 2.55 },
@@ -1129,8 +1166,19 @@ export function createDioramaMap(scene: Scene, materials: CartoonMaterials): Dio
     { x: 4, z: -0.4, width: 2.5 },
     { x: 8, z: 0, width: 2.25 },
     { x: 12, z: 4.5, width: 2.4 },
-    { x: 18, z: 8.8, width: 2.3 },
-  ], scene, materials.terrainRoad);
+    { x: 17.2, z: 8.8, width: 2.3 },
+  ];
+  const terrain = MeshBuilder.CreateGroundFromHeightMap("terrain-heightmap-ground", "/assets/terrain/heightmap-valley.png", {
+    width: 36,
+    height: 28,
+    subdivisions: 96,
+    minHeight: -0.12,
+    maxHeight: 0.9,
+    onReady: (ground) => {
+      addRoadRibbon("terrain-road-main", mainRoadRoute, ground, scene, materials.terrainRoad);
+    },
+  }, scene);
+  terrain.material = materials.terrainGrass;
   addAtlasTreeCards(scene, materials);
 
   return {

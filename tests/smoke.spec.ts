@@ -25,6 +25,10 @@ type VillageSnapshot = {
   terrainRoadPatches: number;
   terrainMainRoads: number;
   terrainMainRoadVertices: number;
+  terrainMainRoadMaxTurnDegrees: number;
+  terrainMainRoadCrossWidthSamples: number;
+  terrainMainRoadMaxHeightGap: number;
+  terrainMainRoadMaxUvEdgeDelta: number;
   terrainMainRoadBounds: {
     minX: number;
     maxX: number;
@@ -107,6 +111,13 @@ type VillageSnapshot = {
     g: number;
     b: number;
   } | null;
+  terrainRoadDisableLighting: boolean | null;
+  terrainRoadEmissive: {
+    r: number;
+    g: number;
+    b: number;
+  } | null;
+  terrainRoadEmissiveTextureSource: string | null;
   pathDirtDiffuse: {
     r: number;
     g: number;
@@ -313,11 +324,17 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
       __KODU_APP__?: {
         gameScene?: {
           map?: unknown;
-          scene?: unknown;
+          scene?: {
+            meshes?: Array<{ name?: string }>;
+          };
         };
       };
     }).__KODU_APP__;
-    return Boolean(app?.gameScene?.scene && app.gameScene.map);
+    return Boolean(
+      app?.gameScene?.scene
+      && app.gameScene.map
+      && app.gameScene.scene.meshes?.some((mesh) => mesh.name === "terrain-road-main"),
+    );
   });
   return page.evaluate(() => {
     const app = (globalThis as typeof globalThis & {
@@ -350,11 +367,21 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
                 uScale?: number;
                 vScale?: number;
               } | null;
+              emissiveTexture?: {
+                name?: string;
+                url?: string;
+              } | null;
               diffuseColor?: {
                 r: number;
                 g: number;
                 b: number;
               };
+              emissiveColor?: {
+                r: number;
+                g: number;
+                b: number;
+              };
+              disableLighting?: boolean;
             }>;
             meshes: Array<{
               name: string;
@@ -365,6 +392,8 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
                 };
               };
               getTotalVertices(): number;
+              getVerticesData(kind: string): number[] | null;
+              getHeightAtCoordinates?(x: number, z: number): number;
               receiveShadows?: boolean;
             }>;
           };
@@ -446,7 +475,54 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
     const skyLightIntensity = scene.lights?.find((light) => light.name === "sky-light")?.intensity ?? 0;
     const sunLightIntensity = scene.lights?.find((light) => light.name === "sun-light")?.intensity ?? 0;
     const mainRoad = scene.meshes.find((mesh) => mesh.name === "terrain-road-main");
+    const terrainGround = scene.meshes.find((mesh) => mesh.name === "terrain-heightmap-ground");
     const mainRoadBox = mainRoad?.getBoundingInfo().boundingBox;
+    const mainRoadPositions = mainRoad?.getVerticesData("position") ?? [];
+    const mainRoadUvs = mainRoad?.getVerticesData("uv") ?? [];
+    const mainRoadUs = Array.from({ length: mainRoadUvs.length / 2 }, (_, index) => mainRoadUvs[index * 2]);
+    const mainRoadCrossWidthSamples = mainRoadUs.findIndex((u, index) => index > 0 && u <= mainRoadUs[index - 1]);
+    const mainRoadRowSize = mainRoadCrossWidthSamples > 0 ? mainRoadCrossWidthSamples : mainRoadUs.length;
+    const mainRoadCenters: Array<{ x: number; z: number }> = [];
+    let mainRoadMaxHeightGap = 0;
+    let mainRoadMaxUvEdgeDelta = 0;
+    for (let vertex = 0; vertex < mainRoadPositions.length / 3; vertex += 1) {
+      const position = vertex * 3;
+      const groundHeight = terrainGround?.getHeightAtCoordinates?.(
+        mainRoadPositions[position],
+        mainRoadPositions[position + 2],
+      );
+      if (groundHeight !== undefined) {
+        mainRoadMaxHeightGap = Math.max(
+          mainRoadMaxHeightGap,
+          Math.abs(mainRoadPositions[position + 1] - groundHeight),
+        );
+      }
+    }
+    for (let vertex = 0; vertex < mainRoadPositions.length / 3; vertex += mainRoadRowSize) {
+      const rightVertex = Math.min(vertex + mainRoadRowSize - 1, mainRoadPositions.length / 3 - 1);
+      const leftPosition = vertex * 3;
+      const rightPosition = rightVertex * 3;
+      mainRoadCenters.push({
+        x: (mainRoadPositions[leftPosition] + mainRoadPositions[rightPosition]) * 0.5,
+        z: (mainRoadPositions[leftPosition + 2] + mainRoadPositions[rightPosition + 2]) * 0.5,
+      });
+      mainRoadMaxUvEdgeDelta = Math.max(
+        mainRoadMaxUvEdgeDelta,
+        Math.abs(mainRoadUvs[vertex * 2 + 1] - mainRoadUvs[rightVertex * 2 + 1]),
+      );
+    }
+    let mainRoadMaxTurnDegrees = 0;
+    for (let index = 1; index < mainRoadCenters.length - 1; index += 1) {
+      const previous = mainRoadCenters[index - 1];
+      const current = mainRoadCenters[index];
+      const next = mainRoadCenters[index + 1];
+      const incoming = { x: current.x - previous.x, z: current.z - previous.z };
+      const outgoing = { x: next.x - current.x, z: next.z - current.z };
+      const denominator = Math.hypot(incoming.x, incoming.z) * Math.hypot(outgoing.x, outgoing.z);
+      if (denominator <= 0.000001) continue;
+      const cosine = Math.max(-1, Math.min(1, (incoming.x * outgoing.x + incoming.z * outgoing.z) / denominator));
+      mainRoadMaxTurnDegrees = Math.max(mainRoadMaxTurnDegrees, Math.acos(cosine) * 180 / Math.PI);
+    }
     const blendedTerrainMaterials = scene.materials.filter((material) => (
       material.name === "mat-terrain-sand"
       || material.name === "mat-terrain-road"
@@ -568,6 +644,10 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
       terrainRoadPatches: names.filter((name) => name.startsWith("terrain-patch-road-")).length,
       terrainMainRoads: names.filter((name) => name === "terrain-road-main").length,
       terrainMainRoadVertices: mainRoad?.getTotalVertices() ?? 0,
+      terrainMainRoadMaxTurnDegrees: mainRoadMaxTurnDegrees,
+      terrainMainRoadCrossWidthSamples: mainRoadCrossWidthSamples,
+      terrainMainRoadMaxHeightGap: mainRoadMaxHeightGap,
+      terrainMainRoadMaxUvEdgeDelta: mainRoadMaxUvEdgeDelta,
       terrainMainRoadBounds: mainRoadBox ? {
         minX: mainRoadBox.minimumWorld.x,
         maxX: mainRoadBox.maximumWorld.x,
@@ -635,6 +715,13 @@ async function readVillageSnapshot(page: Page): Promise<VillageSnapshot> {
           }
         : null,
       terrainRoadDiffuse: colorSnapshot(terrainRoadMaterial),
+      terrainRoadDisableLighting: terrainRoadMaterial?.disableLighting ?? null,
+      terrainRoadEmissive: terrainRoadMaterial?.emissiveColor
+        ? colorSnapshot({ diffuseColor: terrainRoadMaterial.emissiveColor })
+        : null,
+      terrainRoadEmissiveTextureSource: terrainRoadMaterial?.emissiveTexture
+        ? terrainRoadMaterial.emissiveTexture.url ?? terrainRoadMaterial.emissiveTexture.name ?? null
+        : null,
       pathDirtDiffuse: colorSnapshot(pathDirtMaterial),
       houseObstacles,
       houseRoadClearances,
@@ -1094,6 +1181,61 @@ test("terrain image assets are served", async ({ page }) => {
     image.src = asset;
   }), "/assets/terrain/atlas/road/road-ribbon-seamless.png");
   for (const difference of roadSeamStats) expect(difference).toBeLessThanOrEqual(2);
+
+  const roadTextureStats = await page.evaluate(async (imageAssets) => Promise.all(imageAssets.map((asset) => new Promise<{
+    asset: string;
+    opaqueMean: [number, number, number];
+    detail: number;
+  }>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const surface = document.createElement("canvas");
+      surface.width = image.naturalWidth;
+      surface.height = image.naturalHeight;
+      const context = surface.getContext("2d");
+      if (!context) return reject(new Error(`Missing canvas context for ${asset}`));
+      context.drawImage(image, 0, 0);
+      const data = context.getImageData(0, 0, surface.width, surface.height).data;
+      const channelTotals = [0, 0, 0];
+      let opaquePixels = 0;
+      let detailTotal = 0;
+      let detailSamples = 0;
+      const luminanceAt = (pixel: number) => (
+        data[pixel] * 0.2126 + data[pixel + 1] * 0.7152 + data[pixel + 2] * 0.0722
+      );
+      for (let y = 0; y < surface.height; y += 1) {
+        for (let x = 0; x < surface.width; x += 1) {
+          const pixel = (y * surface.width + x) * 4;
+          if (data[pixel + 3] < 220) continue;
+          channelTotals[0] += data[pixel];
+          channelTotals[1] += data[pixel + 1];
+          channelTotals[2] += data[pixel + 2];
+          opaquePixels += 1;
+          for (const neighbor of [pixel - 4, pixel - surface.width * 4]) {
+            if (neighbor >= 0 && data[neighbor + 3] >= 220) {
+              detailTotal += Math.abs(luminanceAt(pixel) - luminanceAt(neighbor));
+              detailSamples += 1;
+            }
+          }
+        }
+      }
+      resolve({
+        asset,
+        opaqueMean: channelTotals.map((total) => total / opaquePixels) as [number, number, number],
+        detail: (detailTotal / detailSamples) * (surface.width / 75),
+      });
+    };
+    image.onerror = () => reject(new Error(`Could not load ${asset}`));
+    image.src = asset;
+  }))), [
+    "/assets/terrain/atlas/road/road-ribbon-seamless.png",
+    "/assets/terrain/atlas/road/road-straight-vertical-wide.png",
+  ]);
+  const generatedRoad = roadTextureStats[0];
+  const sourceRoad = roadTextureStats[1];
+  expect(generatedRoad.opaqueMean[1]).toBeGreaterThanOrEqual(sourceRoad.opaqueMean[1] - 10);
+  expect(generatedRoad.opaqueMean[2]).toBeGreaterThanOrEqual(sourceRoad.opaqueMean[2] - 10);
+  expect(generatedRoad.detail).toBeGreaterThanOrEqual(sourceRoad.detail * 0.5);
 });
 
 test("renders the game and fires a projectile", async ({ page }) => {
@@ -1185,6 +1327,10 @@ test("renders a sparse grass map with atlas tree cards", async ({ page }) => {
   expect(village.terrainRoadPatches).toBe(0);
   expect(village.terrainMainRoads).toBe(1);
   expect(village.terrainMainRoadVertices).toBeGreaterThanOrEqual(120);
+  expect(village.terrainMainRoadMaxTurnDegrees).toBeLessThan(12);
+  expect(village.terrainMainRoadCrossWidthSamples).toBeGreaterThanOrEqual(5);
+  expect(village.terrainMainRoadMaxHeightGap).toBeLessThanOrEqual(0.02);
+  expect(village.terrainMainRoadMaxUvEdgeDelta).toBeGreaterThan(0.01);
   expect(village.terrainMainRoadBounds).not.toBeNull();
   expect(village.terrainMainRoadBounds!.maxX - village.terrainMainRoadBounds!.minX).toBeGreaterThanOrEqual(32);
   expect(village.terrainMainRoadBounds!.maxZ - village.terrainMainRoadBounds!.minZ).toBeGreaterThanOrEqual(17);
@@ -1200,6 +1346,9 @@ test("renders a sparse grass map with atlas tree cards", async ({ page }) => {
   expect(village.terrainGrassBumpTextureSource).toContain("/assets/terrain/atlas/grass/grass-seamless-blended.png");
   expect(village.terrainGrassTextureScale?.u).toBeCloseTo(4.5, 5);
   expect(village.terrainGrassTextureScale?.v).toBeCloseTo(3.5, 5);
+  expect(village.terrainRoadDisableLighting).toBe(true);
+  expect(village.terrainRoadEmissive).toEqual({ r: 1, g: 1, b: 1 });
+  expect(village.terrainRoadEmissiveTextureSource).toContain("/assets/terrain/atlas/road/road-ribbon-seamless.png");
   expect(village.treeTrunkBases).toBe(0);
   expect(village.treeRoots).toBe(0);
   expect(village.treeBranches).toBe(0);
